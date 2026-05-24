@@ -39,7 +39,7 @@
     "cross-env": "^7.0.3",
     "howler": "^2.2.4",
     "lodash": "^4.17.21",
-    "marked": "^15.0.12",
+    "marked": "^18.0.4",
     "naive-ui": "^2.43.2",
     "pinia": "^3.0.4",
     "pinyin-match": "^1.2.10",
