@@ -5,7 +5,7 @@
   "author": "Alger <algerkc@qq.com>",
   "homepage": "https://github.com/zilanLY/music",
   "scripts": {
-    "prepare": "node -e \"try{require('child_process').execSync('husky',{stdio:'inherit'})}catch(e){}\"",
+    "prepare:local": "husky",
     "format": "prettier --write ./src",
     "lint": "eslint ./src --fix && npm run lint:i18n",
     "lint:i18n": "bun scripts/check_i18n.ts",
