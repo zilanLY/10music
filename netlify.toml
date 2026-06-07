@@ -1,16 +1,18 @@
 [build]
-  command = "npm install && npm run build:web"
+  command = "node scripts/build-netlify.js && rm -rf node_modules && npm install && npm run build:web"
   publish = "dist"
 
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# API 路由 — 透传到 Netlify Function
+# API 路由 — 代理到 Netlify Function
+# 使用 200 状态码表示重写（rewrite），而不是重定向（redirect）
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  to = "/.netlify/functions/api"
   status = 200
+  force = true
 
 # SPA 回退
 [[redirects]]
