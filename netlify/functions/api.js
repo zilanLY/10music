@@ -1,12 +1,9 @@
 /**
  * Netlify Serverless Function — 基于 api-enhanced 全部模块
  *
- * 和 Vercel 的 api/index.js 完全一致的逻辑：
- * 动态加载 ncm-api/module/ 下所有模块，根据请求路径匹配并调用。
+ * 使用构建时生成的 _modules.js（静态 require 索引），
+ * 让 esbuild 能正确 trace 所有 399 个模块依赖。
  */
-
-const fs = require('fs')
-const path = require('path')
 
 // ── 初始化 global.deviceId（必须在使用 request.js 之前设置）──────
 const { generateDeviceId } = require('./ncm-api/util/index')
@@ -21,17 +18,8 @@ function getCreateRequest() {
   return _createRequest
 }
 
-// ── 加载所有模块 ──────────────────────────────────────────────────────
-const modules = {}
-const modulesPath = path.join(__dirname, 'ncm-api', 'module')
-
-fs.readdirSync(modulesPath).forEach(file => {
-  if (!file.endsWith('.js')) return
-  const name = file.slice(0, -3) // 去掉 .js
-  // 下划线 → 斜杠（song_detail.js → song/detail）
-  const route = name.replace(/_/g, '/')
-  modules['/' + route] = require(path.join(modulesPath, file))
-})
+// ── 加载所有模块（构建时生成的静态索引）────────────────────────────
+const modules = require('./_modules')
 
 console.log(`[netlify] 已加载 ${Object.keys(modules).length} 个 API 模块`)
 
@@ -65,7 +53,6 @@ exports.handler = async (event, context) => {
 
   // 解析路径：/.netlify/functions/api/search/default → /search/default
   let apiPath = event.path || event.rawPath || '/'
-  // 移除可能的函数路径前缀
   apiPath = apiPath.replace(/^\/\.netlify\/functions\/api/, '')
   apiPath = apiPath.replace(/^\/api/, '')
 
@@ -86,13 +73,12 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // 合并 query + body 作为 query 参数传给模块
+    // 合并 query + body
     const query = { ...(event.queryStringParameters || {}) }
     if (event.body) {
       try {
         Object.assign(query, JSON.parse(event.body))
       } catch (_) {
-        // body 不是 JSON，尝试 form-urlencoded
         const pairs = event.body.split('&')
         for (const pair of pairs) {
           const eq = pair.indexOf('=')
@@ -101,7 +87,6 @@ exports.handler = async (event, context) => {
         }
       }
     }
-    // 传递 Cookie
     query.cookie = parseCookie(
       event.headers?.cookie || event.headers?.Cookie || ''
     )
@@ -111,7 +96,6 @@ exports.handler = async (event, context) => {
     const body = result.body || result
     const status = result.status || 200
 
-    // 处理 Set-Cookie（如果模块返回了 cookie）
     if (result.cookie && result.cookie.length > 0) {
       headers['Set-Cookie'] = result.cookie
     }
