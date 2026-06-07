@@ -113,7 +113,7 @@ async function rsaEncryptNoPadding(data: Uint8Array): Promise<string> {
   // 对于 Workers 环境，使用简化的 RSA 实现
   // 这里直接调用原版逻辑的等价实现
   // 由于 Web Crypto 不支持 NoPadding，我们使用 JS 实现
-  const modulus = '00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b725152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82147b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7'
+  const modulus = '00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b725152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7'
   
   // 将数据转为大数
   const dataHex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join('')
@@ -147,6 +147,15 @@ async function md5(message: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+// ── Uint8Array → Base64 ───────────────────────────────────────────
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+}
+
 // ── weapi 加密 ─────────────────────────────────────────────────────
 export async function weapi(object: Record<string, any>) {
   const text = JSON.stringify(object)
@@ -157,11 +166,14 @@ export async function weapi(object: Record<string, any>) {
   const secretKeyBytes = new TextEncoder().encode(secretKey)
   const textBytes = new TextEncoder().encode(text)
 
-  // 两次 AES-CBC 加密
-  const first = await aesEncryptCBC(pkcs7Pad(textBytes), presetKey, iv)
-  const second = await aesEncryptCBC(pkcs7Pad(first), secretKeyBytes, iv)
+  // 第一次 AES-CBC 加密 → base64 字符串（Web Crypto 自动 PKCS7 padding）
+  const firstBytes = await aesEncryptCBC(textBytes, presetKey, iv)
+  const firstBase64 = bytesToBase64(firstBytes)
 
-  const params = btoa(String.fromCharCode(...second))
+  // 第二次 AES-CBC 加密：加密的是 base64 字符串的 UTF-8 字节（Web Crypto 自动 PKCS7 padding）
+  const firstBase64Bytes = new TextEncoder().encode(firstBase64)
+  const secondBytes = await aesEncryptCBC(firstBase64Bytes, secretKeyBytes, iv)
+  const params = bytesToBase64(secondBytes)
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '')
@@ -177,7 +189,7 @@ export async function weapi(object: Record<string, any>) {
 export async function linuxapi(object: Record<string, any>) {
   const text = JSON.stringify(object)
   const textBytes = new TextEncoder().encode(text)
-  const encrypted = await aesEncryptECB(pkcs7Pad(textBytes), linuxapiKey)
+  const encrypted = await aesEncryptECB(textBytes, linuxapiKey)
   const eparams = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
   return { eparams }
 }
@@ -189,7 +201,7 @@ export async function eapi(url: string, object: Record<string, any>) {
   const digest = await md5(message)
   const data = `${url}-36cd479b6b5-${text}-36cd479b6b5-${digest}`
   const dataBytes = new TextEncoder().encode(data)
-  const encrypted = await aesEncryptECB(pkcs7Pad(dataBytes), eapiKey)
+  const encrypted = await aesEncryptECB(dataBytes, eapiKey)
   const params = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
   return { params }
 }
@@ -198,8 +210,8 @@ export async function eapi(url: string, object: Record<string, any>) {
 export async function eapiResDecrypt(encryptedHex: string): Promise<any> {
   const ciphertext = new Uint8Array(encryptedHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
   const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  const unpadded = pkcs7Unpad(decrypted)
-  const text = new TextDecoder().decode(unpadded)
+  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  const text = new TextDecoder().decode(decrypted)
   try {
     return JSON.parse(text)
   } catch {
@@ -207,7 +219,7 @@ export async function eapiResDecrypt(encryptedHex: string): Promise<any> {
     try {
       const ds = new DecompressionStream('gzip')
       const writer = ds.writable.getWriter()
-      writer.write(unpadded)
+      writer.write(decrypted)
       writer.close()
       const reader = ds.readable.getReader()
       const chunks: Uint8Array[] = []
@@ -234,8 +246,8 @@ export async function eapiResDecrypt(encryptedHex: string): Promise<any> {
 export async function eapiReqDecrypt(encryptedHex: string): Promise<{ url: string; data: any } | null> {
   const ciphertext = new Uint8Array(encryptedHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
   const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  const unpadded = pkcs7Unpad(decrypted)
-  const text = new TextDecoder().decode(unpadded)
+  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  const text = new TextDecoder().decode(decrypted)
   const match = text.match(/(.*?)-36cd479b6b5-(.*?)-36cd479b6b5-(.*)/)
   if (match) {
     return { url: match[1], data: JSON.parse(match[2]) }
@@ -247,6 +259,6 @@ export async function eapiReqDecrypt(encryptedHex: string): Promise<{ url: strin
 export async function decrypt(cipher: string): Promise<string> {
   const ciphertext = new Uint8Array(cipher.match(/.{2}/g)!.map(b => parseInt(b, 16)))
   const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  const unpadded = pkcs7Unpad(decrypted)
-  return new TextDecoder().decode(unpadded)
+  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  return new TextDecoder().decode(decrypted)
 }

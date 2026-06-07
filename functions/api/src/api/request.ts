@@ -1,6 +1,6 @@
 /**
  * NeteaseCloudMusicApi — Cloudflare Worker 请求层
- * 
+ *
  * 原版: axios + Node http/https + tunnel
  * 本版: 原生 fetch API (Workers 原生支持)
  */
@@ -45,8 +45,9 @@ interface RequestResult {
   cookie?: string[]
 }
 
-const NETEASE_BASE = 'https://interface3.music.163.com'
-const NETEASE_EAPI = 'https://interface3.music.163.com/eapi'
+const NETEASE_BASE = 'https://music.163.com'
+const NETEASE_API_BASE = 'https://interface.music.163.com'
+const NETEASE_EAPI = 'https://interface.music.163.com/eapi'
 
 let anonymousToken = ''
 
@@ -98,7 +99,7 @@ export async function neteaseRequest(
 ): Promise<RequestResult> {
   const ip = config.realIP || generateRandomChineseIP()
   let cookie: Record<string, string> = {}
-  
+
   if (typeof config.cookie === 'string') {
     cookie = cookieStringToJson(config.cookie)
   } else {
@@ -118,14 +119,14 @@ export async function neteaseRequest(
     cookie['__csrf'] = `${wnmcid}.${Date.now()}.01.0`
   }
 
+  const csrfToken = cookie['__csrf'] || ''
+
   const osConf = APP_CONF.pc
-  const userAgent = config.ua || `NeteaseMusic/${osConf.appver}/${osConf.buildver}/${osConf.os}/${osConf.osver}`
 
   let targetUrl = url
   let method = 'POST'
   let bodyData: string | URLSearchParams | null = null
   let headers: Record<string, string> = {
-    'User-Agent': userAgent,
     'Content-Type': 'application/x-www-form-urlencoded',
     'Cookie': cookieObjToString(cookie),
     'X-Real-IP': ip,
@@ -133,25 +134,29 @@ export async function neteaseRequest(
   }
 
   if (config.crypto === 'weapi') {
+    headers['Referer'] = config.domain || NETEASE_BASE
+    headers['User-Agent'] = config.ua || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0'
+    data.csrf_token = csrfToken
     const encrypted = await weapi(data)
     bodyData = new URLSearchParams({
       params: encrypted.params,
       encSecKey: encrypted.encSecKey,
     }).toString()
-    targetUrl = `${NETEASE_BASE}/weapi${url.replace('/api', '')}`
+    targetUrl = `${config.domain || NETEASE_BASE}/weapi${url.replace('/api', '')}`
   } else if (config.crypto === 'linuxapi') {
+    headers['User-Agent'] = config.ua || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36'
     const encrypted = await linuxapi(data)
     bodyData = new URLSearchParams({ eparams: encrypted.eparams }).toString()
-    targetUrl = `${NETEASE_BASE}/linuxapi${url.replace('/api', '')}`
+    targetUrl = `${config.domain || NETEASE_BASE}/api/linux/forward`
   } else if (config.crypto === 'eapi') {
-    const encrypted = await eapi(url, data)
-    bodyData = new URLSearchParams({ params: encrypted.params }).toString()
-    targetUrl = `${NETEASE_EAPI}${url.replace('/api', '')}`
-    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    headers['User-Agent'] = config.ua || `NeteaseMusic/${osConf.appver}/${osConf.buildver}/${osConf.os}/${osConf.osver}`
     headers['osver'] = osConf.osver
     headers['appver'] = osConf.appver
     headers['os'] = osConf.os
     headers['buildver'] = osConf.buildver
+    const encrypted = await eapi(url, data)
+    bodyData = new URLSearchParams({ params: encrypted.params }).toString()
+    targetUrl = `${config.domain || NETEASE_API_BASE}/eapi${url.replace('/api', '')}`
   }
 
   try {
@@ -161,12 +166,12 @@ export async function neteaseRequest(
       body: bodyData,
     })
 
-    const setCookies = response.headers.getAll?.('set-cookie') || 
+    const setCookies = response.headers.getAll?.('set-cookie') ||
                        (response.headers.get('set-cookie') ? [response.headers.get('set-cookie')!] : [])
 
     let body: any
     const contentType = response.headers.get('content-type') || ''
-    
+
     if (config.crypto === 'eapi' && response.ok) {
       const text = await response.text()
       try {
