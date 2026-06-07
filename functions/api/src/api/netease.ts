@@ -140,7 +140,7 @@ export async function loginQrCheck(key: string, req: ReqFn) {
   return req('/api/login/qr/check', { key }, { crypto: 'weapi' })
 }
 
-export async function loginQrKey(req: Fn) {
+export async function loginQrKey(req: ReqFn) {
   return req('/api/login/qr/key', {}, { crypto: 'weapi' })
 }
 

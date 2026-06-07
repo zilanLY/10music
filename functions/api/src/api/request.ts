@@ -5,7 +5,7 @@
  * 本版: 原生 fetch API (Workers 原生支持)
  */
 
-import { weapi, linuxapi, eapi, eapiResDecrypt } from './netease'
+import { weapi, linuxapi, eapi, eapiResDecrypt } from '../crypto/netease'
 
 const APP_CONF = {
   ios: {
