@@ -60,6 +60,43 @@
         --animate-delay: 0.5s;
       }
     </style>
+    <!-- Web 模式 Electron/API 防御性 polyfill —— 避免未守卫的 window.electron 调用崩溃 -->
+    <script>
+      // 在所有业务代码加载前提供空安全桩
+      (function () {
+        var noop = function () {};
+        var noopAsync = function () { return Promise.resolve(); };
+        var stub = {
+          ipcRenderer: {
+            on: noop,
+            once: noop,
+            send: noop,
+            invoke: noopAsync,
+            sendSync: function () { return null; },
+            removeListener: noop,
+            removeAllListeners: noop,
+          },
+        };
+        if (!window.electron) window.electron = stub;
+        if (!window.api) window.api = {};
+        // 确保 api 上的方法不会崩溃
+        var apiSafe = function (name) {
+          if (typeof window.api[name] !== 'function') window.api[name] = noop;
+        };
+        ['onLanguageChanged', 'sendSong', 'sendLyric', 'openLyric', 'minimize',
+          'miniWindow', 'miniTray', 'quitApp', 'close', 'restore', 'dragStart',
+          'resizeMiniWindow', 'checkAppUpdate', 'downloadAppUpdate', 'installAppUpdate',
+          'openAppUpdatePage', 'getAppUpdateState', 'removeAppUpdateListeners',
+          'onAppUpdateState', 'onLyricWindowClosed', 'onLyricWindowReady',
+          'getEmbeddedLyrics', 'getSearchSuggestions', 'importCustomApiPlugin',
+          'importLxMusicScript', 'scanLocalMusicWithStats', 'parseLocalMusicMetadata',
+          'unblockMusic', 'invoke'
+        ].forEach(apiSafe);
+        // lxMusicHttpRequest 可能是函数引用
+        if (!window.api.lxMusicHttpRequest) window.api.lxMusicHttpRequest = null;
+        if (!window.api.lxMusicHttpCancel) window.api.lxMusicHttpCancel = noop;
+      })();
+    </script>
   </head>
 
   <body>
