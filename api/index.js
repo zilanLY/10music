@@ -7,13 +7,18 @@
 
 const fs = require('fs')
 const path = require('path')
-const createRequest = require('../server/ncm-api/util/request.js')
 
-// ── 特殊路由映射（文件名 → 实际路由）──────────────────────────────
-const SPECIAL_ROUTES = {
-  'daily_signin': 'daily_signin',
-  'fm_trash':     'fm_trash',
-  'personal_fm':   'personal_fm',
+// ── 初始化 global.deviceId（必须在使用 request.js 之前设置）──────
+const { generateDeviceId, cookieToJson } = require('../server/ncm-api/util/index')
+global.deviceId = generateDeviceId()
+
+// ── 延迟加载 createRequest ──────────────────────────────────────────
+let _createRequest = null
+function getCreateRequest() {
+  if (!_createRequest) {
+    _createRequest = require('../server/ncm-api/util/request.js')
+  }
+  return _createRequest
 }
 
 // ── 加载所有模块 ──────────────────────────────────────────────────────
@@ -22,11 +27,8 @@ const modulesPath = path.join(__dirname, '../server/ncm-api/module/')
 
 fs.readdirSync(modulesPath).forEach(file => {
   if (!file.endsWith('.js')) return
-  const name = file.slice(0, -3) // 去掉 .js
-  // 恢复下划线 → 斜杠（album_new.js → album/new）
-  let route = name.replace(/_/g, '/')
-  // 特殊处理
-  if (SPECIAL_ROUTES[name]) route = SPECIAL_ROUTES[name]
+  const name = file.slice(0, -3)
+  const route = name.replace(/_/g, '/')
   modules['/' + route] = require(path.join(modulesPath, file))
 })
 
@@ -72,6 +74,7 @@ module.exports = async (req, res) => {
     // 传递 Cookie
     query.cookie = parseCookie(req.headers.cookie)
 
+    const createRequest = getCreateRequest()
     const result = await mod(query, createRequest)
     res.status(result.status || 200).json(result.body || result)
   } catch (err) {
