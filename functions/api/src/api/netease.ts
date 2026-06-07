@@ -19,7 +19,7 @@ export async function searchSuggest(keywords: string, req: ReqFn) {
 }
 
 export async function searchDefault(req: ReqFn) {
-  return req('/api/search/default', {}, { crypto: 'weapi' })
+  return req('/api/search/defaultkeyword/get', {}, { crypto: 'eapi' })
 }
 
 // ── 歌曲 ────────────────────────────────────────────────────────────
