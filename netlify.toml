@@ -8,7 +8,7 @@
 
 # 关键：强制把 ncm-api 目录包含进 Function bundle
 # 这样 api.js 里的 fs.readdirSync(__dirname + '/ncm-api/module') 才能正常读取
-[[functions.api]]
+[functions.api]
   included_files = ["netlify/functions/ncm-api/**"]
 
 # API 路由 — 代理到 Netlify Function
