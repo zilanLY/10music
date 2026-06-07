@@ -1,0 +1,24 @@
+name = "music-api-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers 路由配置
+# API 请求路由到 Worker，静态文件路由到 Pages
+
+[vars]
+ENVIRONMENT = "production"
+
+# KV 命名空间绑定（用于缓存）
+# 需要先创建: wrangler kv:namespace create "MUSIC_CACHE"
+# [[kv_namespaces]]
+# binding = "MUSIC_CACHE"
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 构建配置
+[build]
+command = ""
+
+# TypeScript 编译
+[esbuild]
+entry = "src/index.ts"

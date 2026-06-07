@@ -1,0 +1,19 @@
+# Cloudflare Pages 配置
+# 此文件由 Cloudflare Pages 在构建时读取
+
+# 构建命令
+[build]
+command = "npm run build:web"
+
+# 构建输出目录
+[build.upload]
+dir = "dist"
+
+# 环境变量
+[build.environment]
+NODE_VERSION = "22"
+
+# 路由规则 — API 请求转发到 Worker
+# 注意: 这部分在 Cloudflare Dashboard 中配置
+# Pages → Settings → Functions → Routing rules
+# /api/* → music-api-worker
