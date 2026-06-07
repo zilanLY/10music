@@ -68,6 +68,7 @@ app.get('/api/search', async (c) => handleApiCall(c, (req, q) => NeteaseApi.sear
 app.post('/api/search', async (c) => handleApiCall(c, (req, q) => NeteaseApi.searchKeywords(q.keywords || q.s, req, q.limit, q.offset, q.type)))
 app.get('/api/search/suggest', async (c) => handleApiCall(c, (req, q) => NeteaseApi.searchSuggest(q.keywords || q.s, req)))
 app.get('/api/search/default', async (c) => handleApiCall(c, (req) => NeteaseApi.searchDefault(req)))
+app.get('/api/cloudsearch', async (c) => handleApiCall(c, (req, q) => NeteaseApi.cloudsearch(q.keywords || q.s, req, q.limit, q.offset, q.type)))
 
 // ── 歌曲 ──────────────────────────────────────────────────────────────
 app.get('/api/song/detail', async (c) => handleApiCall(c, (req, q) => NeteaseApi.songDetail(String(q.id || q.ids).split(',').map(Number), req)))

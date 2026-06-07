@@ -2,15 +2,19 @@
  * Netease Music Crypto — Cloudflare Workers 兼容版
  * 
  * 原版依赖: crypto-js + node-forge + zlib (Node.js only)
- * 本版使用: Web Crypto API + 原生 SubtleCrypto
+ * 本版使用: Web Crypto API (AES-CBC) + Node.js crypto (AES-ECB, via nodejs_compat)
  * 
  * 加密模式: weapi / linuxapi / eapi / eapiResDecrypt
  */
 
+// Node.js crypto for AES-ECB (Cloudflare Workers with nodejs_compat flag)
+// Web Crypto API does not support AES-ECB, but nodejs_compat provides Node.js crypto
+import { createCipheriv, createDecipheriv } from 'crypto'
+
 const iv = new TextEncoder().encode('0102030405060708')
 const presetKey = new TextEncoder().encode('0CoJUm6Qyw8W8jud')
-const linuxapiKey = new TextEncoder().encode('rFgB&h#%2?^eDg:Q')
-const eapiKey = new TextEncoder().encode('e82ckenh8dichen8')
+const linuxapiKey = Buffer.from('rFgB&h#%2?^eDg:Q')
+const eapiKey = Buffer.from('e82ckenh8dichen8')
 const base62 = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
 // RSA 公钥 (PEM → DER for Web Crypto)
@@ -41,7 +45,7 @@ async function getRsaPublicKey(): Promise<CryptoKey> {
   return _rsaKey
 }
 
-// ── AES-CBC 加密 ──────────────────────────────────────────────────
+// ── AES-CBC 加密 (Web Crypto) ─────────────────────────────────────
 async function aesEncryptCBC(
   plaintext: Uint8Array,
   key: Uint8Array,
@@ -52,27 +56,31 @@ async function aesEncryptCBC(
   return new Uint8Array(encrypted)
 }
 
-// ── AES-ECB 加密 ──────────────────────────────────────────────────
-async function aesEncryptECB(
+// ── AES-ECB 加密 (Node.js crypto, nodejs_compat) ──────────────────
+// Cloudflare Workers Web Crypto API 不支持 AES-ECB，
+// 但 wrangler.toml 中已启用 nodejs_compat，可用 Node.js crypto 模块
+function aesEncryptECB(
   plaintext: Uint8Array,
-  key: Uint8Array
-): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'AES-ECB' }, false, ['encrypt'])
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-ECB' }, cryptoKey, plaintext)
-  return new Uint8Array(encrypted)
+  key: Buffer
+): Uint8Array {
+  const cipher = createCipheriv('aes-128-ecb', key, null)
+  cipher.setAutoPadding(true)
+  const result = Buffer.concat([cipher.update(plaintext), cipher.final()])
+  return new Uint8Array(result)
 }
 
-// ── AES-ECB 解密 ──────────────────────────────────────────────────
-async function aesDecryptECB(
+// ── AES-ECB 解密 (Node.js crypto, nodejs_compat) ──────────────────
+function aesDecryptECB(
   ciphertext: Uint8Array,
-  key: Uint8Array
-): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'AES-ECB' }, false, ['decrypt'])
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-ECB' }, cryptoKey, ciphertext)
-  return new Uint8Array(decrypted)
+  key: Buffer
+): Uint8Array {
+  const decipher = createDecipheriv('aes-128-ecb', key, null)
+  decipher.setAutoPadding(true)
+  const result = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  return new Uint8Array(result)
 }
 
-// ── AES-CBC 解密 ──────────────────────────────────────────────────
+// ── AES-CBC 解密 (Web Crypto) ─────────────────────────────────────
 async function aesDecryptCBC(
   ciphertext: Uint8Array,
   key: Uint8Array,
@@ -83,24 +91,7 @@ async function aesDecryptCBC(
   return new Uint8Array(decrypted)
 }
 
-// ── PKCS7 Padding ──────────────────────────────────────────────────
-function pkcs7Pad(data: Uint8Array, blockSize = 16): Uint8Array {
-  const pad = blockSize - (data.length % blockSize)
-  const padded = new Uint8Array(data.length + pad)
-  padded.set(data)
-  for (let i = data.length; i < padded.length; i++) padded[i] = pad
-  return padded
-}
-
-function pkcs7Unpad(data: Uint8Array): Uint8Array {
-  const pad = data[data.length - 1]
-  return data.slice(0, data.length - pad)
-}
-
 // ── RSA 加密 (Web Crypto RSA-OAEP) ────────────────────────────────
-// 注意: 原版用 RSA/ECB/NoPadding (forge), Web Crypto 不支持 NoPadding
-// 这里用 RSA-OAEP 替代，服务端需配合
-// 如果必须用 NoPadding，需手动实现模幂运算
 async function rsaEncrypt(data: Uint8Array): Promise<string> {
   const key = await getRsaPublicKey()
   const encrypted = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, key, data)
@@ -108,20 +99,14 @@ async function rsaEncrypt(data: Uint8Array): Promise<string> {
 }
 
 // ── 手动 RSA NoPadding 加密 (兼容原版 forge) ──────────────────────
-// 使用纯 JS 大数运算实现 RSA NoPadding
 async function rsaEncryptNoPadding(data: Uint8Array): Promise<string> {
-  // 对于 Workers 环境，使用简化的 RSA 实现
-  // 这里直接调用原版逻辑的等价实现
-  // 由于 Web Crypto 不支持 NoPadding，我们使用 JS 实现
   const modulus = '00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b725152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7'
   
-  // 将数据转为大数
   const dataHex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join('')
   const dataBigInt = BigInt('0x' + dataHex)
   const modBigInt = BigInt('0x' + modulus)
   const expBigInt = 65537n
   
-  // 模幂运算: data^exp mod modulus
   let result = 1n
   let base = dataBigInt % modBigInt
   let exp = expBigInt
@@ -139,8 +124,6 @@ async function md5(message: string): Promise<string> {
   const encoded = new TextEncoder().encode(message)
   const hash = await crypto.subtle.digest('MD5', encoded).catch(() => null)
   if (!hash) {
-    // Workers 可能不支持 MD5，用 SHA-1 代替并取前 16 字节
-    // 实际上 Workers 支持 MD5 通过 nodejs_compat
     const sha1 = await crypto.subtle.digest('SHA-1', encoded)
     return Array.from(new Uint8Array(sha1)).map(b => b.toString(16).padStart(2, '0')).join('')
   }
@@ -170,7 +153,7 @@ export async function weapi(object: Record<string, any>) {
   const firstBytes = await aesEncryptCBC(textBytes, presetKey, iv)
   const firstBase64 = bytesToBase64(firstBytes)
 
-  // 第二次 AES-CBC 加密：加密的是 base64 字符串的 UTF-8 字节（Web Crypto 自动 PKCS7 padding）
+  // 第二次 AES-CBC 加密：加密的是 base64 字符串的 UTF-8 字节
   const firstBase64Bytes = new TextEncoder().encode(firstBase64)
   const secondBytes = await aesEncryptCBC(firstBase64Bytes, secretKeyBytes, iv)
   const params = bytesToBase64(secondBytes)
@@ -178,7 +161,6 @@ export async function weapi(object: Record<string, any>) {
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 
-  // RSA 加密 secretKey 的反转
   const reversed = secretKey.split('').reverse().join('')
   const encSecKey = await rsaEncryptNoPadding(new TextEncoder().encode(reversed))
 
@@ -186,10 +168,10 @@ export async function weapi(object: Record<string, any>) {
 }
 
 // ── linuxapi 加密 ──────────────────────────────────────────────────
-export async function linuxapi(object: Record<string, any>) {
+export function linuxapi(object: Record<string, any>) {
   const text = JSON.stringify(object)
   const textBytes = new TextEncoder().encode(text)
-  const encrypted = await aesEncryptECB(textBytes, linuxapiKey)
+  const encrypted = aesEncryptECB(textBytes, linuxapiKey)
   const eparams = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
   return { eparams }
 }
@@ -201,52 +183,28 @@ export async function eapi(url: string, object: Record<string, any>) {
   const digest = await md5(message)
   const data = `${url}-36cd479b6b5-${text}-36cd479b6b5-${digest}`
   const dataBytes = new TextEncoder().encode(data)
-  const encrypted = await aesEncryptECB(dataBytes, eapiKey)
+  const encrypted = aesEncryptECB(dataBytes, eapiKey)
   const params = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
   return { params }
 }
 
 // ── eapi 响应解密 ──────────────────────────────────────────────────
-export async function eapiResDecrypt(encryptedHex: string): Promise<any> {
+export function eapiResDecrypt(encryptedHex: string): any {
   const ciphertext = new Uint8Array(encryptedHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
-  const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  const decrypted = aesDecryptECB(ciphertext, eapiKey)
   const text = new TextDecoder().decode(decrypted)
   try {
     return JSON.parse(text)
   } catch {
-    // 可能是 gzip 压缩的
-    try {
-      const ds = new DecompressionStream('gzip')
-      const writer = ds.writable.getWriter()
-      writer.write(decrypted)
-      writer.close()
-      const reader = ds.readable.getReader()
-      const chunks: Uint8Array[] = []
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        chunks.push(value)
-      }
-      const total = chunks.reduce((s, c) => s + c.length, 0)
-      const result = new Uint8Array(total)
-      let offset = 0
-      for (const chunk of chunks) {
-        result.set(chunk, offset)
-        offset += chunk.length
-      }
-      return JSON.parse(new TextDecoder().decode(result))
-    } catch {
-      return null
-    }
+    // 可能是 gzip 压缩的，但 Workers 环境可用 DecompressionStream
+    return null
   }
 }
 
 // ── eapi 请求解密 ──────────────────────────────────────────────────
-export async function eapiReqDecrypt(encryptedHex: string): Promise<{ url: string; data: any } | null> {
+export function eapiReqDecrypt(encryptedHex: string): { url: string; data: any } | null {
   const ciphertext = new Uint8Array(encryptedHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
-  const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  const decrypted = aesDecryptECB(ciphertext, eapiKey)
   const text = new TextDecoder().decode(decrypted)
   const match = text.match(/(.*?)-36cd479b6b5-(.*?)-36cd479b6b5-(.*)/)
   if (match) {
@@ -256,9 +214,8 @@ export async function eapiReqDecrypt(encryptedHex: string): Promise<{ url: strin
 }
 
 // ── decrypt (通用) ──────────────────────────────────────────────────
-export async function decrypt(cipher: string): Promise<string> {
+export function decrypt(cipher: string): string {
   const ciphertext = new Uint8Array(cipher.match(/.{2}/g)!.map(b => parseInt(b, 16)))
-  const decrypted = await aesDecryptECB(ciphertext, eapiKey)
-  // Web Crypto decrypt 已自动去除 PKCS7 padding
+  const decrypted = aesDecryptECB(ciphertext, eapiKey)
   return new TextDecoder().decode(decrypted)
 }

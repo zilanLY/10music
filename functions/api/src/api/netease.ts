@@ -22,6 +22,10 @@ export async function searchDefault(req: ReqFn) {
   return req('/api/search/defaultkeyword/get', {}, { crypto: 'eapi' })
 }
 
+export async function cloudsearch(keywords: string, req: ReqFn, limit = 30, offset = 0, type = 1) {
+  return req('/api/cloudsearch/pc', { s: keywords, limit, offset, type, total: true }, { crypto: 'weapi' })
+}
+
 // ── 歌曲 ────────────────────────────────────────────────────────────
 export async function songDetail(ids: number[], req: ReqFn) {
   return req('/api/v3/song/detail', { c: JSON.stringify(ids.map(id => ({ id: String(id) }))) }, { crypto: 'weapi' })
