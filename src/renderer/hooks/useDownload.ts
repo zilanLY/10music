@@ -10,7 +10,8 @@ import { isElectron } from '@/utils';
 
 import type { DownloadSongInfo } from '../../shared/download';
 
-const ipcRenderer = isElectron ? window.electron.ipcRenderer : null;
+// Web 模式：无 IPC 可用
+const ipcRenderer = null;
 
 /**
  * Map a SongResult to the minimal DownloadSongInfo shape required by the download store.

@@ -235,10 +235,36 @@ const getGDMusicAudio = async (id: number, data: SongResult): Promise<ParsedMusi
  * @param sources 音源列表
  * @returns 解析结果
  */
-const getUnblockMusicAudio = (id: number, data: SongResult, sources: any[]) => {
+const getUnblockMusicAudio = async (id: number, data: SongResult, sources: any[]) => {
   const filteredSources = sources.filter((source) => source !== 'gdmusic');
   console.log(`使用unblockMusic解析，音源:`, filteredSources);
-  return window.api.unblockMusic(id, cloneDeep(data), cloneDeep(filteredSources));
+
+  // Web 模式：通过内置 API 服务器进行解锁 (POST /unblock)
+  try {
+    const artistNames = data.ar?.map((a: any) => a.name) || data.song?.artists?.map((a: any) => a.name) || [];
+    const response = await fetch('/api/unblock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        name: data.name,
+        artists: artistNames.map((n: string) => ({ name: n })),
+        album: { name: data.al?.name || '' },
+        duration: data.dt || 0,
+        sources: filteredSources
+      })
+    });
+
+    if (!response.ok) return null;
+    const result = await response.json();
+    if (result?.data?.url) {
+      return { data: { code: 200, data: { url: result.data.url } } };
+    }
+    return null;
+  } catch (err) {
+    console.error('[unblockMusic] Request failed:', err);
+    return null;
+  }
 };
 
 /**

@@ -122,7 +122,7 @@ import { useDebounceFn } from '@vueuse/core';
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
-import localData from '@/../main/set.json';
+import localData from '@/const/set.json';
 import ClearCacheSettings from '@/components/settings/ClearCacheSettings.vue';
 import { useUserStore } from '@/store/modules/user';
 import { isElectron } from '@/utils';

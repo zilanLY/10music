@@ -93,19 +93,14 @@ export const isMobile = computed(() => {
   return settingsStore.isMobile;
 });
 
-export const isElectron = (window as any).electron !== undefined;
+// Serverless/Web 模式 — 固定为 false，所有 Electron 分支永不执行
+export const isElectron = false;
 
 export const isLyricWindow = computed(() => {
   return window.location.hash.includes('lyric');
 });
 
 export const getSetData = (): any => {
-  let setData = null;
-  if (window.electron) {
-    setData = window.electron.ipcRenderer.sendSync('get-store-value', 'set');
-  } else {
-    const settingsStore = useSettingsStore();
-    setData = settingsStore.setData;
-  }
-  return setData;
+  const settingsStore = useSettingsStore();
+  return settingsStore.setData;
 };

@@ -47,11 +47,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 2389,
     proxy: {
-      // 开发时代理 API 请求到指定的 API 服务器
+      // 开发时代理 API 请求到本地内置 API 服务器
       '/api': {
-        target: process.env.VITE_API || 'http://localhost:30488',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
-        rewrite: (path) => path,
       },
     },
   },

@@ -201,6 +201,55 @@ async function handleSongUrlVipFallback(req, res, makeRequest) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 🔓 UNM (UnblockNeteaseMusic) 第三方平台解锁
+// 当官方 API 全部失败时，尝试从酷我/酷狗/咪咕/B站 获取替代链接
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 延迟加载 UNM 模块
+let unmProviders = null
+function getUnmProviders() {
+  if (unmProviders !== null) return unmProviders
+  unmProviders = {}
+  const providerNames = ['kuwo', 'kugou', 'migu', 'bilibili']
+  for (const name of providerNames) {
+    try {
+      const modPath = path.join(__dirname, '..', 'node_modules', '@unblockneteasemusic', 'server', 'src', 'provider', name)
+      unmProviders[name] = require(modPath)
+    } catch (_) { /* provider not available */ }
+  }
+  return unmProviders
+}
+
+/**
+ * UNM 解锁：对单个歌曲尝试所有第三方平台
+ */
+async function unmUnblockSong(songMeta) {
+  const providers = getUnmProviders()
+  if (!Object.keys(providers).length) return null
+  for (const [name, provider] of Object.entries(providers)) {
+    try {
+      const url = await provider.check(songMeta)
+      if (url) { console.log(`[UNM] ✓ id=${songMeta.id} from ${name}`); return url }
+    } catch (_) { /* continue */ }
+  }
+  return null
+}
+
+function registerUnblockRoute(app) {
+  app.post('/unblock', async (req, res) => {
+    const { id, name, artists, album, duration } = req.body || {}
+    if (!id || !name) return res.status(400).send({ code: 400, msg: '缺少 id/name 参数' })
+    try {
+      const songMeta = { id: Number(id), name, artists: artists || [], album: album || { name: '' }, duration: duration || 0, keyword: `${name} - ${(artists || []).map(a => a.name).join(' / ')}` }
+      const url = await unmUnblockSong(songMeta)
+      if (url) { res.status(200).send({ code: 200, data: { url, source: 'unm' } }) }
+      else { res.status(404).send({ code: 404, msg: '未找到替代音源' }) }
+    } catch (err) { res.status(500).send({ code: 500, msg: '解锁失败', detail: err.message }) }
+  })
+  app.get('/unblock', (_, res) => res.status(400).send({ code: 400, msg: '请使用 POST 并提供歌曲元数据' }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function buildExpressApp() {
   const express = require('express')
@@ -333,6 +382,9 @@ async function buildExpressApp() {
 
   // ── B站 API ──────────────────────────────────────────────────────────
   registerBiliApis(app, biliApiConfigs)
+
+  // ── 🔓 UNM 解锁端点 ──────────────────────────────────────────────────
+  registerUnblockRoute(app)
 
   return app
 }

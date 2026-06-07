@@ -2,10 +2,9 @@ import { cloneDeep, isArray, mergeWith } from 'lodash';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 
-import setDataDefault from '@/../main/set.json';
+import setDataDefault from '@/const/set.json';
 import homeRouter from '@/router/home';
 import { useMenuStore } from '@/store/modules/menu';
-import { isElectron } from '@/utils';
 import {
   applyTheme,
   getCurrentTheme,
@@ -14,7 +13,7 @@ import {
   watchSystemTheme
 } from '@/utils/theme';
 
-import { type AppUpdateState,createDefaultAppUpdateState } from '../../../shared/appUpdate';
+import { type AppUpdateState, createDefaultAppUpdateState } from '../../../shared/appUpdate';
 
 export const useSettingsStore = defineStore('settings', () => {
   const theme = ref<ThemeType>(getCurrentTheme());
@@ -35,28 +34,19 @@ export const useSettingsStore = defineStore('settings', () => {
   // 先声明 setData ref 但不初始化
   const setData = ref<any>({});
 
-  // 先定义 setSetData 函数
+  // 设置存储：统一使用 localStorage（Serverless/Web 模式）
   const setSetData = (data: any) => {
-    // 合并现有设置和新设置
     const mergedData = {
       ...setData.value,
       ...data
     };
-
-    if (isElectron) {
-      window.electron.ipcRenderer.send('set-store-value', 'set', cloneDeep(mergedData));
-    } else {
-      localStorage.setItem('appSettings', JSON.stringify(cloneDeep(mergedData)));
-    }
+    localStorage.setItem('appSettings', JSON.stringify(cloneDeep(mergedData)));
     setData.value = cloneDeep(mergedData);
   };
 
-  // 初始化时先从存储中读取设置
+  // 初始化时从 localStorage 读取设置
   const getInitialSettings = () => {
-    // 从存储中获取保存的设置
-    const savedSettings = isElectron
-      ? window.electron.ipcRenderer.sendSync('get-store-value', 'set')
-      : JSON.parse(localStorage.getItem('appSettings') || '{}');
+    const savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
 
     // 自定义合并策略：如果是数组，直接使用源数组（覆盖默认值）
     const customizer = (_objValue: any, srcValue: any) => {
@@ -66,10 +56,7 @@ export const useSettingsStore = defineStore('settings', () => {
       return undefined;
     };
 
-    // 合并默认设置和保存的设置
     const mergedSettings = mergeWith({}, setDataDefault, savedSettings, customizer);
-
-    // 更新设置并返回
     setSetData(mergedSettings);
     return mergedSettings;
   };
@@ -90,7 +77,6 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const toggleTheme = () => {
     if (setData.value.autoTheme) {
-      // 如果是自动模式，切换到手动模式并设置相反的主题
       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
       setSetData({
         autoTheme: false,
@@ -98,13 +84,11 @@ export const useSettingsStore = defineStore('settings', () => {
       });
       theme.value = newTheme;
       applyTheme(newTheme);
-      // 停止监听系统主题
       if (systemThemeCleanup) {
         systemThemeCleanup();
         systemThemeCleanup = null;
       }
     } else {
-      // 手动模式下正常切换
       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
       theme.value = newTheme;
       setSetData({ manualTheme: newTheme });
@@ -116,12 +100,10 @@ export const useSettingsStore = defineStore('settings', () => {
     setSetData({ autoTheme: auto });
 
     if (auto) {
-      // 启用自动模式
       const systemTheme = getSystemTheme();
       theme.value = systemTheme;
       applyTheme(systemTheme);
 
-      // 开始监听系统主题变化
       systemThemeCleanup = watchSystemTheme((newTheme) => {
         if (setData.value.autoTheme) {
           theme.value = newTheme;
@@ -129,12 +111,10 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       });
     } else {
-      // 切换到手动模式
       const manualTheme = setData.value.manualTheme || 'light';
       theme.value = manualTheme;
       applyTheme(manualTheme);
 
-      // 停止监听系统主题
       if (systemThemeCleanup) {
         systemThemeCleanup();
         systemThemeCleanup = null;
@@ -181,18 +161,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const setLanguage = (language: string) => {
     setSetData({ language });
-    if (isElectron) {
-      window.electron.ipcRenderer.send('change-language', language);
-    }
   };
 
   const initializeSettings = () => {
-    // const savedSettings = getInitialSettings();
-    // setData.value = savedSettings;
+    // 状态已从 localStorage 自动恢复
   };
 
   const initializeTheme = () => {
-    // 根据设置初始化主题
     if (setData.value.autoTheme) {
       setAutoTheme(true);
     } else {
@@ -202,16 +177,9 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   };
 
+  // Web 模式下无法获取系统字体列表
   const initializeSystemFonts = async () => {
-    if (!isElectron) return;
-    if (systemFonts.value.length > 1) return;
-
-    try {
-      const fonts = await window.api.invoke('get-system-fonts');
-      setSystemFonts(fonts);
-    } catch (error) {
-      console.error('获取系统字体失败:', error);
-    }
+    // no-op in web mode
   };
 
   // 计算移动端状态的函数
@@ -231,14 +199,12 @@ export const useSettingsStore = defineStore('settings', () => {
     const menuStore = useMenuStore();
     const shouldUseMobileStyle = calculateMobileStatus();
 
-    // 更新store状态
     if (shouldUseMobileStyle) {
       menuStore.setMenus(homeRouter.filter((item) => item.meta.isMobile));
     } else {
       menuStore.setMenus(homeRouter);
     }
 
-    // 更新DOM类
     if (shouldUseMobileStyle) {
       document.documentElement.classList.add('mobile');
       document.documentElement.classList.remove('pc');
@@ -250,7 +216,6 @@ export const useSettingsStore = defineStore('settings', () => {
     isMobile.value = shouldUseMobileStyle;
   };
 
-  // 监听平板模式变化
   watch(
     () => setData.value?.tabletMode,
     () => {
@@ -259,7 +224,6 @@ export const useSettingsStore = defineStore('settings', () => {
     { immediate: true }
   );
 
-  // 监听窗口大小变化
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', updateMobileStatus);
   }

@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
-import { isElectron } from '@/utils';
-
 import {
   createDefaultDownloadSettings,
   DOWNLOAD_TASK_STATE,
@@ -17,19 +15,24 @@ function validatePicUrl(url?: string): string {
   return url.replace(/^http:\/\//, 'https://');
 }
 
+/**
+ * Web/Serverless 模式下载 Store
+ * 
+ * 注意：Web 端下载能力有限。
+ * - 单曲下载：通过 Blob + <a download> 实现（浏览器限制，无并发管理）
+ * - 批量下载：暂不支持（浏览器不支持批量文件下载）
+ * - 下载管理：使用 localStorage 保存设置
+ */
 export const useDownloadStore = defineStore(
   'download',
   () => {
-    // ── State ──────────────────────────────────────────────────────────────
+    // ── State ──
     const tasks = ref(new Map<string, DownloadTask>());
     const completedList = ref<any[]>([]);
     const settings = ref<DownloadSettings>(createDefaultDownloadSettings());
     const isLoadingCompleted = ref(false);
 
-    // Track whether IPC listeners have been registered
-    let listenersInitialised = false;
-
-    // ── Computed ───────────────────────────────────────────────────────────
+    // ── Computed ──
     const downloadingList = computed(() => {
       const active = [
         DOWNLOAD_TASK_STATE.queued,
@@ -50,147 +53,50 @@ export const useDownloadStore = defineStore(
       return sum / list.length;
     });
 
-    // ── Actions ────────────────────────────────────────────────────────────
-    const addDownload = async (songInfo: DownloadTask['songInfo'], url: string, type: string) => {
-      if (!isElectron) return;
-      const validatedInfo = {
-        ...songInfo,
-        picUrl: validatePicUrl(songInfo.picUrl)
-      };
-      const artistNames = validatedInfo.ar?.map((a) => a.name).join(',') ?? '';
-      const filename = `${validatedInfo.name} - ${artistNames}`;
-      await window.api.downloadAdd({ url, filename, songInfo: validatedInfo, type });
+    // ── Web 下载实现 ──
+    const addDownload = async (songInfo: DownloadTask['songInfo'], url: string, _type: string) => {
+      try {
+        const validatedInfo = { ...songInfo, picUrl: validatePicUrl(songInfo.picUrl) };
+        const artistNames = validatedInfo.ar?.map((a) => a.name).join(',') ?? '';
+        const filename = `${validatedInfo.name} - ${artistNames}`;
+
+        // Blob 下载方式
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `${filename}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        console.error('[download] Web download failed:', err);
+      }
     };
 
     const batchDownload = async (
       items: Array<{ songInfo: DownloadTask['songInfo']; url: string; type: string }>
     ) => {
-      if (!isElectron) return;
-      const validatedItems = items.map((item) => {
-        const validatedInfo = {
-          ...item.songInfo,
-          picUrl: validatePicUrl(item.songInfo.picUrl)
-        };
-        const artistNames = validatedInfo.ar?.map((a) => a.name).join(',') ?? '';
-        const filename = `${validatedInfo.name} - ${artistNames}`;
-        return { url: item.url, filename, songInfo: validatedInfo, type: item.type };
-      });
-      await window.api.downloadAddBatch({ items: validatedItems });
-    };
-
-    const pauseTask = async (taskId: string) => {
-      if (!isElectron) return;
-      await window.api.downloadPause(taskId);
-    };
-
-    const resumeTask = async (taskId: string) => {
-      if (!isElectron) return;
-      await window.api.downloadResume(taskId);
-    };
-
-    const cancelTask = async (taskId: string) => {
-      if (!isElectron) return;
-      await window.api.downloadCancel(taskId);
-      tasks.value.delete(taskId);
-    };
-
-    const cancelAll = async () => {
-      if (!isElectron) return;
-      await window.api.downloadCancelAll();
-      tasks.value.clear();
-    };
-
-    const updateConcurrency = async (n: number) => {
-      if (!isElectron) return;
-      const clamped = Math.min(5, Math.max(1, n));
-      settings.value = { ...settings.value, maxConcurrent: clamped };
-      await window.api.downloadSetConcurrency(clamped);
-    };
-
-    const refreshCompleted = async () => {
-      if (!isElectron) return;
-      isLoadingCompleted.value = true;
-      try {
-        const list = await window.api.downloadGetCompleted();
-        completedList.value = list;
-      } finally {
-        isLoadingCompleted.value = false;
+      // Web 端逐首下载
+      for (const item of items) {
+        await addDownload(item.songInfo, item.url, item.type);
       }
     };
 
-    const deleteCompleted = async (filePath: string) => {
-      if (!isElectron) return;
-      await window.api.downloadDeleteCompleted(filePath);
-      completedList.value = completedList.value.filter((item) => item.filePath !== filePath);
-    };
-
-    const clearCompleted = async () => {
-      if (!isElectron) return;
-      await window.api.downloadClearCompleted();
-      completedList.value = [];
-    };
-
-    const loadPersistedQueue = async () => {
-      if (!isElectron) return;
-      const queue = await window.api.downloadGetQueue();
-      tasks.value.clear();
-      for (const task of queue) {
-        tasks.value.set(task.taskId, task);
-      }
-    };
-
-    const initListeners = () => {
-      if (!isElectron || listenersInitialised) return;
-      listenersInitialised = true;
-
-      window.api.onDownloadProgress((event) => {
-        const task = tasks.value.get(event.taskId);
-        if (task) {
-          tasks.value.set(event.taskId, {
-            ...task,
-            progress: event.progress,
-            loaded: event.loaded,
-            total: event.total
-          });
-        }
-      });
-
-      window.api.onDownloadStateChange((event) => {
-        const { taskId, state, task } = event;
-        if (state === DOWNLOAD_TASK_STATE.completed || state === DOWNLOAD_TASK_STATE.cancelled) {
-          tasks.value.delete(taskId);
-          if (state === DOWNLOAD_TASK_STATE.completed) {
-            setTimeout(() => {
-              refreshCompleted();
-            }, 500);
-          }
-        } else {
-          tasks.value.set(taskId, task);
-        }
-      });
-
-      window.api.onDownloadBatchComplete((_event) => {
-        // no-op: main process handles the desktop notification
-      });
-
-      window.api.onDownloadRequestUrl(async (event) => {
-        try {
-          const { getSongUrl } = await import('@/store/modules/player');
-          const result = (await getSongUrl(event.songInfo.id, event.songInfo as any, true)) as any;
-          const url = typeof result === 'string' ? result : (result?.url ?? '');
-          await window.api.downloadProvideUrl(event.taskId, url);
-        } catch (err) {
-          console.error('[downloadStore] onDownloadRequestUrl failed:', err);
-          await window.api.downloadProvideUrl(event.taskId, '');
-        }
-      });
-    };
-
-    const cleanup = () => {
-      if (!isElectron) return;
-      window.api.removeDownloadListeners();
-      listenersInitialised = false;
-    };
+    // Web 模式下无并发管理，这些是 no-op
+    const pauseTask = async (_taskId: string) => {};
+    const resumeTask = async (_taskId: string) => {};
+    const cancelTask = async (taskId: string) => { tasks.value.delete(taskId); };
+    const cancelAll = async () => { tasks.value.clear(); };
+    const updateConcurrency = async (_n: number) => {};
+    const refreshCompleted = async () => {};
+    const deleteCompleted = async (_filePath: string) => {};
+    const clearCompleted = async () => { completedList.value = []; };
+    const loadPersistedQueue = async () => {};
+    const initListeners = () => {};
+    const cleanup = () => {};
 
     return {
       // state
@@ -221,7 +127,6 @@ export const useDownloadStore = defineStore(
   {
     persist: {
       key: 'download-settings',
-      // WARNING: Do NOT add 'tasks' — Map doesn't serialize with JSON.stringify
       pick: ['settings']
     }
   }
