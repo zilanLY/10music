@@ -49,6 +49,8 @@ function parseCookie(cookieStr) {
 
 // ── Netlify Function 入口 ──────────────────────────────────────────
 exports.handler = async (event, context) => {
+  console.log('[netlify-fn] invoked:', event.httpMethod, event.path)
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -66,6 +68,8 @@ exports.handler = async (event, context) => {
   // 移除可能的函数路径前缀
   apiPath = apiPath.replace(/^\/\.netlify\/functions\/api/, '')
   apiPath = apiPath.replace(/^\/api/, '')
+
+  console.log('[netlify-fn] apiPath:', apiPath, '| modules loaded:', Object.keys(modules).length)
 
   // 查找模块
   const mod = modules[apiPath]
