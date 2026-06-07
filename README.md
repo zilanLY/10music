@@ -1,7 +1,7 @@
 # 🎵 10Music Player — Serverless Edition
 
 > 基于 [AlgerMusicPlayer](https://github.com/algerkong/AlgerMusicPlayer) 二次改造的 **Serverless 云原生音乐播放器**  
-> 移除 Electron 依赖，内置网易云 API + UNM 灰歌解锁，支持 Cloudflare Pages 和 Vercel 双平台一键部署。
+> 移除 Electron 依赖，内置网易云 API + UNM 灰歌解锁，支持 Cloudflare Pages / Vercel / Netlify 三平台一键部署。
 
 ---
 
@@ -22,6 +22,12 @@
 ### [![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zilanLY/10music) Vercel 一键部署
 
 Vercel 部署采用 **Serverless Function** 模式，`api/` 目录作为 Node.js 端点，无需额外配置。
+
+---
+
+### [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/zilanLY/10music) Netlify 一键部署
+
+Netlify 部署采用 **Netlify Functions** 模式，`netlify/functions/` 目录作为 Node.js 端点，无需额外配置。支持一键从 Git 导入自动构建。
 
 ---
 
@@ -59,13 +65,13 @@ Cloudflare 部署采用 **Pages Functions** 架构，前端 + API 合一，全�
 
 #### 平台对比
 
-| 特性 | Cloudflare | Vercel |
-|------|-----------|--------|
-| 全球节点 | 300+ | 100+ |
-| 冷启动 | <5ms | 100-500ms |
-| 免费额度 | 10万请求/天 | 10万请求/月 |
-| 缓存 | KV (全球同步) | 内存 (无持久化) |
-| 部署方式 | Worker + Pages | Serverless Function |
+| 特性 | Cloudflare | Vercel | Netlify |
+|------|-----------|--------|---------|
+| 全球节点 | 300+ | 100+ | 100+ |
+| 冷启动 | <5ms | 100-500ms | 50-200ms |
+| 免费额度 | 10万请求/天 | 10万请求/月 | 12.5万请求/月 |
+| 缓存 | KV (全球同步) | 内存 (无持久化) | Edge Config |
+| 部署方式 | Worker + Pages | Serverless Function | Netlify Functions |
 
 ---
 
@@ -169,6 +175,9 @@ npm install && npx wrangler pages dev dist --compatibility-date=2024-12-01
 │   └── api/
 │       ├── [[path]].ts   # API 路由入口
 │       └── src/          # API 源码
+├── netlify/              # Netlify Functions (API)
+│   └── functions/
+│       └── api.ts        # API 路由入口
 ├── api/                  # Vercel Serverless Functions
 │   └── index.js          # API 入口
 ├── src/
@@ -184,6 +193,7 @@ npm install && npx wrangler pages dev dist --compatibility-date=2024-12-01
 ├── server.js             # Node.js 全功能服务器（本地开发用）
 ├── vite.config.ts        # Vite 配置
 ├── vercel.json           # Vercel 部署配置
+├── netlify.toml          # Netlify 部署配置
 └── package.json          # 依赖管理
 ```
 
@@ -200,24 +210,26 @@ npm install && npx wrangler pages dev dist --compatibility-date=2024-12-01
 | 播放引擎 | Howler.js |
 | API (Node) | NeteaseCloudMusicApi + UNM |
 | API (Cloudflare) | Hono + Web Crypto + fetch (Pages Functions) |
+| API (Netlify) | Hono + Node.js crypto + fetch (Netlify Functions) |
 | 解锁 (Node) | UNM (`@unblockneteasemusic/server`) |
 | 解锁 (Worker) | 纯 fetch 实现（酷我/酷狗/咪咕/B站） |
-| 部署 | Cloudflare Pages / Vercel |
+| 部署 | Cloudflare Pages / Vercel / Netlify |
 
 ---
 
-## ⚡ Cloudflare Pages Functions vs Node.js 版本对比
+## ⚡ 三平台版本对比
 
-| 维度 | Pages Functions 版 | Node.js 版 |
-|------|-----------|------------|
-| 加密 | Web Crypto API | crypto-js + node-forge |
-| HTTP | 原生 fetch | axios |
-| 路由 | Hono | Express |
-| 代理 | 不支持 | tunnel/pac-proxy-agent |
-| 缓存 | KV (全球) | 内存 |
-| API 模块 | 40+ 常用接口 | 200+ 全量接口 |
-| 冷启动 | <5ms | 1-3s |
-| 依赖大小 | <2MB | ~80MB (node_modules) |
+| 维度 | Cloudflare Pages | Vercel | Netlify |
+|------|-----------------|--------|---------|
+| 运行时 | V8 Isolate (Workers) | Node.js Serverless | Node.js Functions |
+| 加密 | Web Crypto API | crypto-js + node-forge | Node.js crypto |
+| HTTP | 原生 fetch | axios | 原生 fetch |
+| 路由 | Hono | Express | Hono |
+| 代理 | 不支持 | tunnel/pac-proxy-agent | 不支持 |
+| 缓存 | KV (全球) | 内存 | Edge Config |
+| API 模块 | 40+ 常用接口 | 200+ 全量接口 | 40+ 常用接口 |
+| 冷启动 | <5ms | 1-3s | 50-200ms |
+| 依赖大小 | <2MB | ~80MB | <2MB |
 
 ---
 

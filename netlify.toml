@@ -1,0 +1,19 @@
+[build]
+  command = "npm install && npm run build:web"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# API 路由 — 透传到 Netlify Function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# SPA 回退
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
