@@ -1,5 +1,5 @@
 [build]
-  command = "node scripts/build-netlify.js && rm -rf node_modules && npm install && npm run build:web"
+  command = "node scripts/build-netlify.js && rm -f package-lock.json && rm -rf node_modules && npm install && npm run build:web"
   publish = "dist"
 
 [functions]
