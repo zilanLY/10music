@@ -67,6 +67,7 @@ async function handleApiCall(c: any, handler: (req: any, query: any) => Promise<
 app.get('/api/search', async (c) => handleApiCall(c, (req, q) => NeteaseApi.searchKeywords(q.keywords || q.s, req, q.limit, q.offset, q.type)))
 app.post('/api/search', async (c) => handleApiCall(c, (req, q) => NeteaseApi.searchKeywords(q.keywords || q.s, req, q.limit, q.offset, q.type)))
 app.get('/api/search/suggest', async (c) => handleApiCall(c, (req, q) => NeteaseApi.searchSuggest(q.keywords || q.s, req)))
+app.get('/api/search/default', async (c) => handleApiCall(c, (req) => NeteaseApi.searchDefault(req)))
 
 // ── 歌曲 ──────────────────────────────────────────────────────────────
 app.get('/api/song/detail', async (c) => handleApiCall(c, (req, q) => NeteaseApi.songDetail(String(q.id || q.ids).split(',').map(Number), req)))
@@ -106,6 +107,12 @@ app.post('/api/login/qr/check', async (c) => handleApiCall(c, (req, q) => Neteas
 // ── 推荐 ──────────────────────────────────────────────────────────────
 app.get('/api/recommend/songs', async (c) => handleApiCall(c, (req) => NeteaseApi.recommendSongs(req)))
 app.get('/api/recommend/resource', async (c) => handleApiCall(c, (req) => NeteaseApi.recommendResource(req)))
+app.get('/api/personalized', async (c) => handleApiCall(c, (req, q) => NeteaseApi.personalized(req, q.limit)))
+app.get('/api/personalized/newsong', async (c) => handleApiCall(c, (req, q) => NeteaseApi.personalizedNewsong(req, q.limit)))
+
+// ── 排行榜 ────────────────────────────────────────────────────────────
+app.get('/api/top/artists', async (c) => handleApiCall(c, (req, q) => NeteaseApi.topArtists(req, q.limit, q.offset)))
+app.get('/api/top/album', async (c) => handleApiCall(c, (req, q) => NeteaseApi.topAlbum(req, q.limit, q.offset)))
 
 // ── 评论 ──────────────────────────────────────────────────────────────
 app.get('/api/comment/music', async (c) => handleApiCall(c, (req, q) => NeteaseApi.commentMusic(Number(q.id), req, q.limit, q.offset)))

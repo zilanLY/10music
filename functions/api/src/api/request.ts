@@ -149,11 +149,35 @@ export async function neteaseRequest(
     bodyData = new URLSearchParams({ eparams: encrypted.eparams }).toString()
     targetUrl = `${config.domain || NETEASE_BASE}/api/linux/forward`
   } else if (config.crypto === 'eapi') {
+    // eapi 需要构造 header 对象并嵌入到加密数据中
+    const now = Date.now()
+    const eapiHeader: Record<string, string> = {
+      osver: cookie.osver || osConf.osver,
+      deviceId: cookie.deviceId || '',
+      os: cookie.os || osConf.os,
+      appver: cookie.appver || osConf.appver,
+      versioncode: cookie.versioncode || '140',
+      mobilename: cookie.mobilename || '',
+      buildver: cookie.buildver || String(now).substring(0, 10),
+      resolution: cookie.resolution || '1920x1080',
+      __csrf: csrfToken,
+      channel: cookie.channel || '',
+      requestId: `${now}_${String(Math.floor(Math.random() * 1000)).padStart(4, '0')}`,
+    }
+    if (cookie.MUSIC_U) eapiHeader['MUSIC_U'] = cookie.MUSIC_U
+    if (cookie.MUSIC_A) eapiHeader['MUSIC_A'] = cookie.MUSIC_A
+
+    // header → Cookie header
+    const headerCookie = Object.entries(eapiHeader)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('; ')
+    headers['Cookie'] = headerCookie
     headers['User-Agent'] = config.ua || `NeteaseMusic/${osConf.appver}/${osConf.buildver}/${osConf.os}/${osConf.osver}`
-    headers['osver'] = osConf.osver
-    headers['appver'] = osConf.appver
-    headers['os'] = osConf.os
-    headers['buildver'] = osConf.buildver
+
+    // eapi 加密需要把 header 和 e_r 包含在 data 中
+    data.header = eapiHeader
+    data.e_r = config.e_r !== undefined ? config.e_r : true
+
     const encrypted = await eapi(url, data)
     bodyData = new URLSearchParams({ params: encrypted.params }).toString()
     targetUrl = `${config.domain || NETEASE_API_BASE}/eapi${url.replace('/api', '')}`

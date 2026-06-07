@@ -18,6 +18,10 @@ export async function searchSuggest(keywords: string, req: ReqFn) {
   return req('/api/search/suggest/keyword', { s: keywords }, { crypto: 'weapi' })
 }
 
+export async function searchDefault(req: ReqFn) {
+  return req('/api/search/default', {}, { crypto: 'weapi' })
+}
+
 // ── 歌曲 ────────────────────────────────────────────────────────────
 export async function songDetail(ids: number[], req: ReqFn) {
   return req('/api/v3/song/detail', { c: JSON.stringify(ids.map(id => ({ id: String(id) }))) }, { crypto: 'weapi' })
@@ -155,6 +159,22 @@ export async function recommendSongs(req: ReqFn) {
 
 export async function recommendResource(req: ReqFn) {
   return req('/api/v1/discovery/recommend/resource', {}, { crypto: 'weapi' })
+}
+
+export async function personalized(req: ReqFn, limit = 30) {
+  return req('/api/personalized', { limit }, { crypto: 'weapi' })
+}
+
+export async function personalizedNewsong(req: ReqFn, limit = 10) {
+  return req('/api/personalized/newsong', { limit, areaId: 0, type: 'recommend' }, { crypto: 'weapi' })
+}
+
+export async function topArtists(req: ReqFn, limit = 30, offset = 0) {
+  return req('/api/top/artists', { limit, offset }, { crypto: 'weapi' })
+}
+
+export async function topAlbum(req: ReqFn, limit = 20, offset = 0) {
+  return req('/api/top/album', { limit, offset, area: 'all', type: 'new' }, { crypto: 'weapi' })
 }
 
 // ── 评论 ────────────────────────────────────────────────────────────
