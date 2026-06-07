@@ -47,7 +47,6 @@ interface RequestResult {
 
 const NETEASE_BASE = 'https://music.163.com'
 const NETEASE_API_BASE = 'https://interface.music.163.com'
-const NETEASE_EAPI = 'https://interface.music.163.com/eapi'
 
 let anonymousToken = ''
 
@@ -145,7 +144,7 @@ export async function neteaseRequest(
     targetUrl = `${config.domain || NETEASE_BASE}/weapi${url.replace('/api', '')}`
   } else if (config.crypto === 'linuxapi') {
     headers['User-Agent'] = config.ua || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36'
-    const encrypted = await linuxapi(data)
+    const encrypted = linuxapi(data)
     bodyData = new URLSearchParams({ eparams: encrypted.eparams }).toString()
     targetUrl = `${config.domain || NETEASE_BASE}/api/linux/forward`
   } else if (config.crypto === 'eapi') {
@@ -175,8 +174,9 @@ export async function neteaseRequest(
     headers['User-Agent'] = config.ua || `NeteaseMusic/${osConf.appver}/${osConf.buildver}/${osConf.os}/${osConf.osver}`
 
     // eapi 加密需要把 header 和 e_r 包含在 data 中
+    // 注意: e_r 默认 false（匹配原版 config.json encryptResponse: false）
     data.header = eapiHeader
-    data.e_r = config.e_r !== undefined ? config.e_r : true
+    data.e_r = config.e_r !== undefined ? config.e_r : false
 
     const encrypted = await eapi(url, data)
     bodyData = new URLSearchParams({ params: encrypted.params }).toString()
@@ -194,19 +194,26 @@ export async function neteaseRequest(
                        (response.headers.get('set-cookie') ? [response.headers.get('set-cookie')!] : [])
 
     let body: any
-    const contentType = response.headers.get('content-type') || ''
 
-    if (config.crypto === 'eapi' && response.ok) {
+    if (config.crypto === 'eapi' && data.e_r) {
+      // e_r=true: netease 返回原始二进制加密响应
+      const arrayBuf = await response.arrayBuffer()
+      const hex = Array.from(new Uint8Array(arrayBuf))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase()
+      try {
+        body = eapiResDecrypt(hex)
+      } catch {
+        body = { code: 200, data: '[eapi encrypted]' }
+      }
+    } else if (config.crypto === 'eapi' && response.ok) {
+      // e_r=false: netease 返回普通 JSON
       const text = await response.text()
       try {
         body = JSON.parse(text)
       } catch {
-        // 尝试 eapi 解密
-        try {
-          body = await eapiResDecrypt(text)
-        } catch {
-          body = { code: 200, data: text }
-        }
+        body = { code: response.status, data: text }
       }
     } else {
       try {
@@ -243,7 +250,7 @@ export function createRequestFactory(defaultConfig: {
       cookie: defaultConfig.cookie || {},
       ua: defaultConfig.ua,
       realIP: defaultConfig.realIP,
-      e_r: true,
+      e_r: false,
       domain: '',
       checkToken: false,
       ...config,
