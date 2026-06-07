@@ -1,7 +1,7 @@
 # 🎵 10Music Player — Serverless Edition
 
 > 基于 [AlgerMusicPlayer](https://github.com/algerkong/AlgerMusicPlayer) 二次改造的 **Serverless 云原生音乐播放器**  
-> 移除 Electron 依赖，内置网易云 API + UNM 灰歌解锁，支持 Cloudflare Workers + Pages 和 Vercel 双平台一键部署。
+> 移除 Electron 依赖，内置网易云 API + UNM 灰歌解锁，支持 Cloudflare Pages 和 Vercel 双平台一键部署。
 
 ---
 
@@ -13,7 +13,7 @@
 - **🌐 跨平台** — 支持桌面浏览器、移动端响应式
 - **🎨 精美 UI** — naive-ui + Tailwind CSS，暗色/亮色主题切换
 - **🌍 国际化** — 多语言支持
-- **⚡ Cloudflare Workers** — 极致边缘计算，全球 CDN 加速
+- **⚡ Cloudflare Pages Functions** — 极致边缘计算，全球 CDN 加速
 
 ---
 
@@ -27,40 +27,32 @@ Vercel 部署采用 **Serverless Function** 模式，`api/` 目录作为 Node.js
 
 ### [![Deploy to Cloudflare Pages](https://img.shields.io/badge/Deploy%20to-Cloudflare%20Pages-f38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://dash.cloudflare.com/?to=/:account/pages/new/connect) Cloudflare Pages 部署
 
-Cloudflare 部署采用 **Workers (API) + Pages (前端)** 架构，全球 300+ 节点边缘计算，冷启动 <5ms。
+Cloudflare 部署采用 **Pages Functions** 架构，前端 + API 合一，全球 300+ 节点边缘计算。
 
-> **注意**：Cloudflare 部署需要两步（先部署 Worker API，再部署 Pages 前端），请按下方步骤操作。
+> **一键导入**：访问 [Cloudflare Dashboard → Pages](https://dash.cloudflare.com/?to=/:account/pages/new/connect) → **Connect to Git** → 选择 `zilanLY/10music` 仓库 → 完成。
 
-#### 步骤 1：部署 API Worker
+#### 配置说明
 
-```bash
-cd worker && npm install && npx wrangler login && npx wrangler deploy
-# 记录输出的 Worker URL，例如: https://music-api-worker.your-subdomain.workers.dev
-```
+| 配置项 | 值 |
+|--------|-----|
+| **构建命令** | `npm install && npm run build:web` |
+| **输出目录** | `dist` |
+| **API 路径** | `functions/api/[[path]].ts`（自动识别） |
 
-#### 步骤 2：部署前端到 Pages
-
-```bash
-cd ..
-VITE_API=https://music-api-worker.your-subdomain.workers.dev \
-VITE_API_TARGET=https://music-api-worker.your-subdomain.workers.dev \
-npm run build:web
-npx wrangler pages deploy dist --project-name=10music
-```
+部署完成后，Pages 会自动托管前端静态资源，Functions 自动处理 `/api/*` 请求。
 
 #### 架构
 
 ```
 用户浏览器
     │
-    ├── 静态资源 (JS/CSS/HTML) ──► Cloudflare Pages (全球 CDN)
+    ├── 静态资源 (JS/CSS/HTML) ──► Cloudflare Pages CDN
     │
-    └── /api/* ──────────────► Cloudflare Worker (边缘计算)
+    └── /api/* ──────────────► Pages Functions (边缘计算)
                                       │
                                       ├── Web Crypto API (网易云加密)
                                       ├── fetch (HTTP 请求)
-                                      ├── UNM 解锁 (酷我/酷狗/咪咕/B站)
-                                      └── KV 缓存 (可选)
+                                      └── UNM 解锁 (酷我/酷狗/咪咕/B站)
 ```
 
 ---
@@ -87,9 +79,9 @@ npm install
 npm run dev:full
 # 前端 :2389 → API :8080
 
-# 方式二：前端 + Cloudflare Worker 本地模拟
-cd worker && npm install && npx wrangler dev
-# Worker API :8787 → 前端 :2389
+# 方式二：前端 + Cloudflare Pages Functions 本地模拟
+npm install && npx wrangler pages dev dist --compatibility-date=2024-12-01
+# Pages Functions 自动提供 /api/* 路由
 ```
 
 ### 环境变量
@@ -104,12 +96,12 @@ cd worker && npm install && npx wrangler dev
 
 ## 🔌 API 架构
 
-### Cloudflare Workers 版（推荐）
+### Cloudflare Pages Functions 版（推荐）
 
 ```
 前端 (Cloudflare Pages)
       │
-      ├─ /api/* ──► Worker (Hono + Web Crypto + fetch)
+      ├─ /api/* ──► Pages Functions (Hono + Web Crypto + fetch)
       │                   │
       │                   ├─ weapi/eapi 加密 (Web Crypto API)
       │                   ├─ VIP 多音质 fallback (6层降级)
@@ -161,7 +153,7 @@ cd worker && npm install && npx wrangler dev
 
 ```
 10music/
-├── worker/               # Cloudflare Worker API
+├── worker/               # Cloudflare Worker API（独立部署方案）
 │   ├── src/
 │   │   ├── index.ts      # Hono 入口 + 路由
 │   │   ├── api/
@@ -173,6 +165,10 @@ cd worker && npm install && npx wrangler dev
 │   │       └── unm.ts        # UNM 解锁 (fetch 版)
 │   ├── wrangler.toml     # Workers 配置
 │   └── package.json
+├── functions/            # Cloudflare Pages Functions (API)
+│   └── api/
+│       ├── [[path]].ts   # API 路由入口
+│       └── src/          # API 源码
 ├── api/                  # Vercel Serverless Functions
 │   └── index.js          # API 入口
 ├── src/
@@ -203,16 +199,16 @@ cd worker && npm install && npx wrangler dev
 | 状态管理 | Pinia |
 | 播放引擎 | Howler.js |
 | API (Node) | NeteaseCloudMusicApi + UNM |
-| API (Worker) | Hono + Web Crypto + fetch |
+| API (Cloudflare) | Hono + Web Crypto + fetch (Pages Functions) |
 | 解锁 (Node) | UNM (`@unblockneteasemusic/server`) |
 | 解锁 (Worker) | 纯 fetch 实现（酷我/酷狗/咪咕/B站） |
-| 部署 | Cloudflare / Vercel |
+| 部署 | Cloudflare Pages / Vercel |
 
 ---
 
-## ⚡ Cloudflare Workers vs Node.js 版本对比
+## ⚡ Cloudflare Pages Functions vs Node.js 版本对比
 
-| 维度 | Workers 版 | Node.js 版 |
+| 维度 | Pages Functions 版 | Node.js 版 |
 |------|-----------|------------|
 | 加密 | Web Crypto API | crypto-js + node-forge |
 | HTTP | 原生 fetch | axios |
