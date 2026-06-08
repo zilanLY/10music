@@ -5,7 +5,6 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
-  external_node_modules = ["@unblockneteasemusic/server"]
 
 # API 路由 — 代理到 Netlify Function
 [[redirects]]
