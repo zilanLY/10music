@@ -3,22 +3,25 @@
  * When NetEase returns no URL, tries to match from third-party sources
  * via @unblockneteasemusic/server.
  *
- * 借鉴 SPlayer 策略：
- * - pyncmd 优先（通过 music.gdstudio.xyz → Netease CDN HTTPS URL）
- * - HTTPS URL 直接返回（无需代理，Netease CDN 支持 CORS）
- * - HTTP URL 走音频代理（/api/audio/proxy）
- * - 过滤试听片段（如 16KB 预览版）
+ * 架构：通过 netlify.toml external_node_modules 配置，
+ * esbuild 不打包 UNM（避免 Netlify 环境下静默失败），
+ * 运行时从 node_modules 加载完整的 UNM 模块树。
+ *
+ * 策略：
+ * - pyncmd 优先（music.gdstudio.xyz → Netease CDN HTTPS）
+ * - HTTPS URL 直接返回，HTTP 走 /api/audio/proxy
+ * - 逐个尝试源，过滤试听片段
  */
 const createOption = require('../util/option.js')
 
-// ★ UNM match — 必须使用顶层静态 require，否则 esbuild 打包时会跳过
-// 在 Netlify 构建时，@unblockneteasemusic/server 被复制到 ../unm-server/
+// ★ UNM — 通过 external_node_modules 部署，esbuild 不打包
+// 运行时从 node_modules/@unblockneteasemusic/server 加载
 let unmMatch = null
 try {
-  unmMatch = require('../unm-server/src/provider/match')
-  console.log('[UNM] ✓ UNM match module loaded successfully')
+  unmMatch = require('@unblockneteasemusic/server')
+  console.log('[UNM] ✓ UNM module loaded from node_modules')
 } catch (e) {
-  console.warn('[UNM] ✗ Failed to load UNM match module:', e.message, e.stack?.split('\n')[1])
+  console.warn('[UNM] ✗ Failed to load UNM:', e.message, e.stack?.split('\n')[1])
 }
 
 module.exports = async (query, request) => {
