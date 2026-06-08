@@ -34,6 +34,16 @@ if (fs.existsSync(netlifyOverridesSrc)) {
   }
 }
 
+// 复制 @unblockneteasemusic/server 到函数目录，供解锁模块使用
+const UNM_SRC = path.resolve(__dirname, '../node_modules/@unblockneteasemusic/server')
+const UNM_DST = path.join(DST, 'unm-server')
+if (fs.existsSync(UNM_SRC)) {
+  copyDir(UNM_SRC, UNM_DST)
+  console.log(`[build-netlify] 复制 UNM: ${UNM_SRC} → ${UNM_DST}`)
+} else {
+  console.warn('[build-netlify] 警告: @unblockneteasemusic/server 未安装，解锁功能将不可用')
+}
+
 console.log(`[build-netlify] 复制 ${SRC} → ${DST}`)
 
 function copyDir(src, dst) {
