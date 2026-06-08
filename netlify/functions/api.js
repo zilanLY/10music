@@ -22,6 +22,7 @@ function getCreateRequest() {
 const https = require('https')
 const http = require('http')
 const { URL } = require('url')
+const { PassThrough } = require('stream')
 
 // ── 加载所有模块（构建时生成的静态索引）────────────────────────────
 const modules = require('./_modules')
@@ -139,7 +140,9 @@ exports.handler = async (event, context) => {
   }
 }
 
-// ── 音频代理：将第三方音频 URL 通过服务器转发，添加 CORS 头 ───────
+// ── 音频代理（流式）：将第三方音频 URL 通过服务器转发，添加 CORS 头 ─
+// 使用 PassThrough 流式管道：数据一到达就立即推送给浏览器，
+// 避免 Netflix Lambda 6MB 缓冲限制和超时问题。
 async function handleAudioProxy(event, headers) {
   const targetUrl = event.queryStringParameters?.url
   if (!targetUrl) {
@@ -161,83 +164,104 @@ async function handleAudioProxy(event, headers) {
     }
   }
 
-  console.log('[audio-proxy] Proxying:', parsed.href)
+  console.log('[audio-proxy] Proxying:', parsed.host + parsed.pathname)
 
-  // 转发请求（使用 http 或 https，支持 Range 请求）
   const isHttps = parsed.protocol === 'https:'
   const transport = isHttps ? https : http
 
   const rangeHeader = event.headers?.range || event.headers?.Range
   const reqHeaders = {
     'User-Agent': 'Mozilla/5.0 (compatible; WorkBuddy-Music/1.0)',
+    'Accept': '*/*',
   }
   if (rangeHeader) {
     reqHeaders['Range'] = rangeHeader
+    console.log('[audio-proxy] Range request:', rangeHeader)
   }
 
-  try {
-    const response = await new Promise((resolve, reject) => {
-      const chunks = []
+  return new Promise((resolve) => {
+    const proxyReq = transport.get(
+      parsed.href,
+      { headers: reqHeaders, timeout: 25000 },
+      (proxyRes) => {
+        const statusCode = proxyRes.statusCode
+        const contentType = proxyRes.headers['content-type']
+        const contentLength = proxyRes.headers['content-length']
+        const contentRange = proxyRes.headers['content-range']
+        const acceptRanges = proxyRes.headers['accept-ranges']
 
-      const proxyReq = transport.get(
-        parsed.href,
-        { headers: reqHeaders, timeout: 8000 },
-        (proxyRes) => {
-          // 收集状态码和响应头
-          const statusCode = proxyRes.statusCode
-          const contentType = proxyRes.headers['content-type']
-          const contentLength = proxyRes.headers['content-length']
-          const contentRange = proxyRes.headers['content-range']
-          const acceptRanges = proxyRes.headers['accept-ranges']
+        console.log('[audio-proxy] Response:', statusCode, contentType, contentLength ? `(${contentLength}B)` : '')
 
-          // 构建返回头
-          const respHeaders = { ...headers }
-          if (contentType) respHeaders['Content-Type'] = contentType
-          if (contentLength) respHeaders['Content-Length'] = contentLength
-          if (contentRange) respHeaders['Content-Range'] = contentRange
-          if (acceptRanges) respHeaders['Accept-Ranges'] = acceptRanges
-          respHeaders['Access-Control-Allow-Origin'] = '*'
-          respHeaders['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length'
-
-          proxyRes.on('data', (chunk) => chunks.push(chunk))
+        // 如果上游返回错误，不流式传输
+        if (statusCode >= 400) {
+          let errorBody = ''
+          proxyRes.on('data', (chunk) => { errorBody += chunk.toString() })
           proxyRes.on('end', () => {
             resolve({
-              statusCode: statusCode >= 100 && statusCode < 600 ? statusCode : 200,
-              headers: respHeaders,
-              body: Buffer.concat(chunks).toString('base64'),
-              isBase64Encoded: true,
+              statusCode: 502,
+              headers,
+              body: JSON.stringify({ code: 502, msg: 'Upstream returned ' + statusCode }),
             })
           })
-          proxyRes.on('error', reject)
+          proxyRes.on('error', () => {
+            resolve({ statusCode: 502, headers, body: JSON.stringify({ code: 502, msg: 'Upstream error' }) })
+          })
+          return
         }
-      )
 
-      proxyReq.on('timeout', () => {
-        proxyReq.destroy()
-        resolve({
-          statusCode: 502,
-          headers,
-          body: 'Proxy timeout',
-        })
-      })
+        // 构建响应头
+        const respHeaders = {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length, Content-Type',
+        }
+        if (contentType) respHeaders['Content-Type'] = contentType
+        if (contentLength) respHeaders['Content-Length'] = contentLength
+        if (contentRange) respHeaders['Content-Range'] = contentRange
+        if (acceptRanges) respHeaders['Accept-Ranges'] = acceptRanges
 
-      proxyReq.on('error', (err) => {
-        console.error('[audio-proxy] Request error:', err.message)
+        // ★ 流式管道：创建 PassThrough 并立即 resolve，
+        //    然后 pipe 上游数据到 PassThrough
+        const passThrough = new PassThrough()
+
+        // 先 resolve（返回带 stream body 的响应）
         resolve({
-          statusCode: 502,
-          headers,
-          body: JSON.stringify({ code: 502, msg: 'Proxy request failed: ' + err.message }),
+          statusCode,
+          headers: respHeaders,
+          body: passThrough,
         })
+
+        // 管道：上游 → PassThrough → 响应
+        proxyRes.pipe(passThrough)
+
+        proxyRes.on('error', (err) => {
+          console.error('[audio-proxy] Stream error:', err.message)
+          passThrough.destroy(err)
+        })
+
+        passThrough.on('error', () => {
+          // PassThrough 被销毁时清理上游
+          if (!proxyRes.destroyed) proxyRes.destroy()
+        })
+      }
+    )
+
+    proxyReq.on('timeout', () => {
+      console.error('[audio-proxy] Connection timeout after 25s')
+      proxyReq.destroy()
+      resolve({
+        statusCode: 504,
+        headers,
+        body: JSON.stringify({ code: 504, msg: 'Audio source timeout' }),
       })
     })
 
-    return response
-  } catch (err) {
-    console.error('[audio-proxy] Error:', err.message)
-    return {
-      statusCode: 502,
-      headers,
-      body: JSON.stringify({ code: 502, msg: 'Proxy error: ' + err.message }),
-    }
-  }
+    proxyReq.on('error', (err) => {
+      console.error('[audio-proxy] Request error:', err.message)
+      resolve({
+        statusCode: 502,
+        headers,
+        body: JSON.stringify({ code: 502, msg: 'Proxy request failed: ' + err.message }),
+      })
+    })
+  })
 }
