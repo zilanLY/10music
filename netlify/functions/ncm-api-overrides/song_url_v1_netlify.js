@@ -3,8 +3,11 @@
  * When NetEase returns no URL, tries to match from third-party sources
  * via @unblockneteasemusic/server.
  *
- * 逐个尝试源（kuwo → kugou → migu → bilibili），
- * 过滤试听片段（如 16KB 预览版），只返回完整歌曲匹配。
+ * 借鉴 SPlayer 策略：
+ * - pyncmd 优先（通过 music.gdstudio.xyz → Netease CDN HTTPS URL）
+ * - HTTPS URL 直接返回（无需代理，Netease CDN 支持 CORS）
+ * - HTTP URL 走音频代理（/api/audio/proxy）
+ * - 过滤试听片段（如 16KB 预览版）
  */
 const createOption = require('../util/option.js')
 
@@ -67,8 +70,8 @@ module.exports = async (query, request) => {
       }
     }
 
-    // ★ 逐个尝试源，过滤试听片段
-    const allSources = (process.env.UNM_SOURCES || 'kuwo,kugou,migu,bilibili')
+    // ★ 逐个尝试源，pyncmd 优先（HTTPS Netease CDN，无需代理）
+    const allSources = (process.env.UNM_SOURCES || 'pyncmd,kuwo,kugou,migu,bilibili')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
@@ -110,13 +113,20 @@ module.exports = async (query, request) => {
     if (bestResult?.url) {
       console.log(`[UNM] ✓ Unlocked ${query.id} from ${bestSource}`)
 
-      // 将第三方 URL 替换为代理 URL，绕过 CORS 限制
-      const proxyUrl = '/api/audio/proxy?url=' + encodeURIComponent(bestResult.url)
+      // ★ URL 策略（借鉴 SPlayer）：
+      // HTTPS URL → 直接返回（Netease CDN 已支持 CORS，无需代理）
+      // HTTP URL  → 走音频代理（浏览器阻止 Mixed Content）
+      const isHttps = bestResult.url.startsWith('https://')
+      const finalUrl = isHttps
+        ? bestResult.url
+        : '/api/audio/proxy?url=' + encodeURIComponent(bestResult.url)
+
+      console.log(`[UNM] Final URL: ${isHttps ? 'DIRECT (https)' : 'PROXIED'} — ${finalUrl.substring(0, 80)}...`)
 
       const isFlac = bestResult.url.includes('.flac')
       const unlockedSong = {
         id: Number(query.id),
-        url: proxyUrl,
+        url: finalUrl,
         br: bestResult.br || 128000,
         size: bestResult.size || 0,
         md5: bestResult.md5 || null,
