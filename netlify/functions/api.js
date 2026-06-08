@@ -90,6 +90,11 @@ exports.handler = async (event, context) => {
     query.cookie = parseCookie(
       event.headers?.cookie || event.headers?.Cookie || ''
     )
+    // Netlify serverless 环境无法访问 interface.music.163.com（eapi 域名），
+    // 强制所有请求走 weapi（music.163.com），除非前端显式指定了 crypto
+    if (!query.crypto) {
+      query.crypto = 'weapi'
+    }
 
     const createRequest = getCreateRequest()
     const result = await mod(query, createRequest)
@@ -106,6 +111,7 @@ exports.handler = async (event, context) => {
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }
   } catch (err) {
+    console.error('[netlify-fn] error:', apiPath, err.status, err.message || err)
     const body = err.body || {}
     const status = err.status || 500
     return {
