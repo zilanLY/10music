@@ -2,22 +2,19 @@
  * Netlify-adapted song_url_v1 — uses weapi + UNM unlock fallback.
  * When NetEase returns no URL, tries to match from third-party sources
  * via @unblockneteasemusic/server.
+ *
+ * 逐个尝试源（kuwo → kugou → migu → bilibili），
+ * 过滤试听片段（如 16KB 预览版），只返回完整歌曲匹配。
  */
 const createOption = require('../util/option.js')
 
-// UNM match function — lazily loaded to avoid startup overhead
+// ★ UNM match — 必须使用顶层静态 require，否则 esbuild 打包时会跳过
 // 在 Netlify 构建时，@unblockneteasemusic/server 被复制到 ../unm-server/
-let matchFn = null
-function getUnmMatch() {
-  if (!matchFn) {
-    try {
-      matchFn = require('../unm-server/src/provider/match')
-    } catch (e) {
-      console.warn('[UNM] Failed to load match module:', e.message)
-      matchFn = null
-    }
-  }
-  return matchFn
+let unmMatch = null
+try {
+  unmMatch = require('../unm-server/src/provider/match')
+} catch (e) {
+  console.warn('[UNM] Failed to load UNM match module:', e.message)
 }
 
 module.exports = async (query, request) => {
@@ -48,14 +45,12 @@ module.exports = async (query, request) => {
   }
 
   // Step 2: NetEase returned empty — try UNM unlock
-  const match = getUnmMatch()
-  if (!match) {
-    // UNM not available, return NetEase result as-is
+  if (!unmMatch) {
     return neteaseResult
   }
 
   try {
-    // Build UNM song info from query if available
+    // 构建 UNM 歌曲信息（用于提高匹配精度）
     let unmData = null
     if (query.name || query.songName) {
       unmData = {
@@ -72,31 +67,62 @@ module.exports = async (query, request) => {
       }
     }
 
-    const sources = (process.env.UNM_SOURCES || 'kugou,kuwo,migu,bilibili')
+    // ★ 逐个尝试源，过滤试听片段
+    const allSources = (process.env.UNM_SOURCES || 'kuwo,kugou,migu,bilibili')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
 
-    console.log(`[UNM] Unlocking song ${query.id}, sources: ${sources.join(',')}`)
-    const unmResult = await match(query.id, sources, unmData)
+    const songDurationSec = query.dt ? Number(query.dt) / 1000 : 240
+    // 最小期望文件大小：64kbps × 秒数 / 8，至少 300KB
+    const minExpectedSize = Math.max(songDurationSec * 8000, 300 * 1024)
 
-    if (unmResult?.url) {
-      console.log(`[UNM] Unlocked ${query.id} from ${unmResult.source}: ${unmResult.url}`)
+    let bestResult = null
+    let bestSource = null
 
-      // 将第三方 URL 替换为我们的代理 URL，绕过 CORS 限制
-      const proxyUrl = '/api/audio/proxy?url=' + encodeURIComponent(unmResult.url)
+    for (const source of allSources) {
+      try {
+        console.log(`[UNM] Trying source: ${source} for song ${query.id}`)
+        const result = await unmMatch(query.id, [source], unmData)
 
-      // Map UNM result to NetEase format
-      const isFlac = unmResult.url.includes('.flac')
+        if (!result?.url) {
+          console.log(`[UNM] ${source}: no match`)
+          continue
+        }
+
+        console.log(`[UNM] ${source}: url=${result.url.substring(0, 80)}..., size=${result.size}B, br=${result.br}`)
+
+        // 过滤试听片段：文件太小（< 期望大小的 20%）
+        if (result.size && result.size < minExpectedSize * 0.2) {
+          console.warn(`[UNM] ${source}: file too small (${result.size}B < ${Math.floor(minExpectedSize * 0.2)}B), likely preview, skipping`)
+          continue
+        }
+
+        // 找到一个合适的匹配
+        bestResult = result
+        bestSource = source
+        break
+      } catch (err) {
+        console.warn(`[UNM] ${source}: error:`, err.message || err)
+      }
+    }
+
+    if (bestResult?.url) {
+      console.log(`[UNM] ✓ Unlocked ${query.id} from ${bestSource}`)
+
+      // 将第三方 URL 替换为代理 URL，绕过 CORS 限制
+      const proxyUrl = '/api/audio/proxy?url=' + encodeURIComponent(bestResult.url)
+
+      const isFlac = bestResult.url.includes('.flac')
       const unlockedSong = {
         id: Number(query.id),
         url: proxyUrl,
-        br: unmResult.br || 128000,
-        size: unmResult.size || 0,
-        md5: unmResult.md5 || null,
+        br: bestResult.br || 128000,
+        size: bestResult.size || 0,
+        md5: bestResult.md5 || null,
         code: 200,
         expi: 1200,
-        type: isFlac ? 'flac' : (unmResult.url.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || 'mp3'),
+        type: isFlac ? 'flac' : (bestResult.url.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || 'mp3'),
         gain: 0,
         peak: null,
         closedGain: 0,
@@ -148,6 +174,8 @@ module.exports = async (query, request) => {
         cookie: [],
       }
     }
+
+    console.warn(`[UNM] All sources failed for song ${query.id}`)
   } catch (err) {
     console.warn(`[UNM] Failed to unlock ${query.id}:`, err.message || err)
   }

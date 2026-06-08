@@ -8,19 +8,13 @@
  */
 const createOption = require('../util/option.js')
 
-// UNM match function — lazily loaded to avoid startup overhead
+// ★ UNM match — 必须使用顶层静态 require，否则 esbuild 打包时会跳过
 // 在 Netlify 构建时，@unblockneteasemusic/server 被复制到 ../unm-server/
-let matchFn = null
-function getUnmMatch() {
-  if (!matchFn) {
-    try {
-      matchFn = require('../unm-server/src/provider/match')
-    } catch (e) {
-      console.warn('[UNM] Failed to load match module:', e.message)
-      matchFn = null
-    }
-  }
-  return matchFn
+let unmMatch = null
+try {
+  unmMatch = require('../unm-server/src/provider/match')
+} catch (e) {
+  console.warn('[UNM] Failed to load UNM match module:', e.message)
 }
 
 module.exports = async (query, request) => {
@@ -51,8 +45,7 @@ module.exports = async (query, request) => {
   }
 
   // Step 2: NetEase returned empty — try UNM unlock
-  const match = getUnmMatch()
-  if (!match) {
+  if (!unmMatch) {
     return neteaseResult
   }
 
@@ -90,7 +83,8 @@ module.exports = async (query, request) => {
     for (const source of allSources) {
       try {
         console.log(`[UNM] Trying source: ${source} for song ${query.id}`)
-        const result = await match(query.id, [source], unmData)
+        const result = await unmMatch(query.id, [source], unmData)
+
         if (!result?.url) {
           console.log(`[UNM] ${source}: no match`)
           continue
