@@ -16,11 +16,13 @@ const createOption = require('../util/option.js')
 let unmMatch = null
 try {
   unmMatch = require('../unm-server/src/provider/match')
+  console.log('[UNM] ✓ UNM match module loaded successfully')
 } catch (e) {
-  console.warn('[UNM] Failed to load UNM match module:', e.message)
+  console.warn('[UNM] ✗ Failed to load UNM match module:', e.message, e.stack?.split('\n')[1])
 }
 
 module.exports = async (query, request) => {
+  console.log(`[song_url_v1] Request for ${query.id}, UNM loaded: ${!!unmMatch}`)
   const data = {
     ids: '[' + query.id + ']',
     level: query.level || 'exhigh',
