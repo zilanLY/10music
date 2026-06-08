@@ -101,13 +101,20 @@ exports.handler = async (event, context) => {
     const body = result.body || result
     const status = result.status || 200
 
-    if (result.cookie && result.cookie.length > 0) {
+    // ncm-api 返回的 cookie 是字符串数组，但 Netlify/Lambda 要求
+    // headers 字段的值必须是字符串。数组类型的 Set-Cookie 必须
+    // 放到 multiValueHeaders 中，否则 Lambda 解码失败返回 502。
+    const multiValueHeaders = {}
+    if (result.cookie && Array.isArray(result.cookie) && result.cookie.length > 0) {
+      multiValueHeaders['Set-Cookie'] = result.cookie
+    } else if (result.cookie && typeof result.cookie === 'string') {
       headers['Set-Cookie'] = result.cookie
     }
 
     return {
       statusCode: status >= 100 && status < 600 ? status : 200,
       headers,
+      ...(Object.keys(multiValueHeaders).length > 0 ? { multiValueHeaders } : {}),
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }
   } catch (err) {
