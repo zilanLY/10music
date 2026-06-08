@@ -83,11 +83,14 @@ module.exports = async (query, request) => {
     if (unmResult?.url) {
       console.log(`[UNM] Unlocked ${query.id} from ${unmResult.source}: ${unmResult.url}`)
 
+      // 将第三方 URL 替换为我们的代理 URL，绕过 CORS 限制
+      const proxyUrl = '/api/audio/proxy?url=' + encodeURIComponent(unmResult.url)
+
       // Map UNM result to NetEase format
       const isFlac = unmResult.url.includes('.flac')
       const unlockedSong = {
         id: Number(query.id),
-        url: unmResult.url,
+        url: proxyUrl,
         br: unmResult.br || 128000,
         size: unmResult.size || 0,
         md5: unmResult.md5 || null,

@@ -18,6 +18,11 @@ function getCreateRequest() {
   return _createRequest
 }
 
+// ── 音频代理所需模块 ────────────────────────────────────────────
+const https = require('https')
+const http = require('http')
+const { URL } = require('url')
+
 // ── 加载所有模块（构建时生成的静态索引）────────────────────────────
 const modules = require('./_modules')
 
@@ -55,6 +60,11 @@ exports.handler = async (event, context) => {
   let apiPath = event.path || event.rawPath || '/'
   apiPath = apiPath.replace(/^\/\.netlify\/functions\/api/, '')
   apiPath = apiPath.replace(/^\/api/, '')
+
+  // ── 音频代理路由：绕过 CORS 限制 ────────────────────────────
+  if (apiPath === '/audio/proxy') {
+    return handleAudioProxy(event, headers)
+  }
 
   console.log('[netlify-fn] apiPath:', apiPath, '| modules loaded:', Object.keys(modules).length)
 
@@ -125,6 +135,109 @@ exports.handler = async (event, context) => {
       statusCode: status >= 100 && status < 600 ? status : 200,
       headers,
       body: JSON.stringify(body.code ? body : { code: status, msg: err.message || 'Internal error' }),
+    }
+  }
+}
+
+// ── 音频代理：将第三方音频 URL 通过服务器转发，添加 CORS 头 ───────
+async function handleAudioProxy(event, headers) {
+  const targetUrl = event.queryStringParameters?.url
+  if (!targetUrl) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ code: 400, msg: 'Missing url parameter' }),
+    }
+  }
+
+  let parsed
+  try {
+    parsed = new URL(targetUrl)
+  } catch (_) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ code: 400, msg: 'Invalid url parameter' }),
+    }
+  }
+
+  console.log('[audio-proxy] Proxying:', parsed.href)
+
+  // 转发请求（使用 http 或 https，支持 Range 请求）
+  const isHttps = parsed.protocol === 'https:'
+  const transport = isHttps ? https : http
+
+  const rangeHeader = event.headers?.range || event.headers?.Range
+  const reqHeaders = {
+    'User-Agent': 'Mozilla/5.0 (compatible; WorkBuddy-Music/1.0)',
+  }
+  if (rangeHeader) {
+    reqHeaders['Range'] = rangeHeader
+  }
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const chunks = []
+
+      const proxyReq = transport.get(
+        parsed.href,
+        { headers: reqHeaders, timeout: 8000 },
+        (proxyRes) => {
+          // 收集状态码和响应头
+          const statusCode = proxyRes.statusCode
+          const contentType = proxyRes.headers['content-type']
+          const contentLength = proxyRes.headers['content-length']
+          const contentRange = proxyRes.headers['content-range']
+          const acceptRanges = proxyRes.headers['accept-ranges']
+
+          // 构建返回头
+          const respHeaders = { ...headers }
+          if (contentType) respHeaders['Content-Type'] = contentType
+          if (contentLength) respHeaders['Content-Length'] = contentLength
+          if (contentRange) respHeaders['Content-Range'] = contentRange
+          if (acceptRanges) respHeaders['Accept-Ranges'] = acceptRanges
+          respHeaders['Access-Control-Allow-Origin'] = '*'
+          respHeaders['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length'
+
+          proxyRes.on('data', (chunk) => chunks.push(chunk))
+          proxyRes.on('end', () => {
+            resolve({
+              statusCode: statusCode >= 100 && statusCode < 600 ? statusCode : 200,
+              headers: respHeaders,
+              body: Buffer.concat(chunks).toString('base64'),
+              isBase64Encoded: true,
+            })
+          })
+          proxyRes.on('error', reject)
+        }
+      )
+
+      proxyReq.on('timeout', () => {
+        proxyReq.destroy()
+        resolve({
+          statusCode: 502,
+          headers,
+          body: 'Proxy timeout',
+        })
+      })
+
+      proxyReq.on('error', (err) => {
+        console.error('[audio-proxy] Request error:', err.message)
+        resolve({
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({ code: 502, msg: 'Proxy request failed: ' + err.message }),
+        })
+      })
+    })
+
+    return response
+  } catch (err) {
+    console.error('[audio-proxy] Error:', err.message)
+    return {
+      statusCode: 502,
+      headers,
+      body: JSON.stringify({ code: 502, msg: 'Proxy error: ' + err.message }),
     }
   }
 }
