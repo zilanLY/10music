@@ -17,6 +17,11 @@ const ESBUILD_BLACKLIST = new Set([
   'cloud.js',         // 依赖 music-metadata (ESM-only，require 不可用)
 ])
 
+// Netlify 专用替换：黑名单模块的替代实现
+const NETLIFY_REPLACEMENTS = {
+  '/song/url/v1': "require('./ncm-api/module/song_url_v1_netlify.js')",
+}
+
 // 先初始化 global.deviceId
 try {
   const { generateDeviceId } = require(path.join(repoRoot, 'netlify/functions/ncm-api/util/index'))
@@ -56,6 +61,11 @@ for (const file of loaded) {
   const name = file.slice(0, -3)
   const route = name.replace(/_/g, '/')
   lines.push(`  '/${route}': require('./ncm-api/module/${file}'),`)
+}
+
+// 注入 Netlify 专用替换模块
+for (const [route, req] of Object.entries(NETLIFY_REPLACEMENTS)) {
+  lines.push(`  '${route}': ${req},`)
 }
 
 lines.push('}')

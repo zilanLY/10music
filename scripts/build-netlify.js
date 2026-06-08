@@ -18,6 +18,22 @@ if (fs.existsSync(DST)) {
 // 复制整个目录
 copyDir(SRC, DST)
 
+// 复制 Netlify 专用模块替换（不在 server/ncm-api/ 中）
+const netlifyOverrides = 'netlify/functions/ncm-api-overrides'
+const netlifyOverridesSrc = path.resolve(__dirname, '..', netlifyOverrides)
+const netlifyOverridesDst = path.join(DST, 'module')
+if (fs.existsSync(netlifyOverridesSrc)) {
+  const entries = fs.readdirSync(netlifyOverridesSrc, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      const srcPath = path.join(netlifyOverridesSrc, entry.name)
+      const dstPath = path.join(netlifyOverridesDst, entry.name)
+      fs.copyFileSync(srcPath, dstPath)
+      console.log(`[build-netlify] 复制覆盖模块: ${entry.name}`)
+    }
+  }
+}
+
 console.log(`[build-netlify] 复制 ${SRC} → ${DST}`)
 
 function copyDir(src, dst) {
