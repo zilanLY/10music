@@ -4,3 +4,4 @@ dist/
 out/
 vite-server.log
 netlify/functions/ncm-api/unm-server/
+tmp/
