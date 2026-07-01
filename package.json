@@ -57,7 +57,7 @@
     "@types/node": "20.17.0",
     "@types/node-fetch": "^2.6.13",
     "@types/tinycolor2": "^1.4.6",
-    "@typescript-eslint/eslint-plugin": "^8.49.0",
+    "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.49.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/compiler-sfc": "^3.5.25",
